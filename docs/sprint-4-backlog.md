@@ -10,7 +10,7 @@
 ## Definition of Done
 
 - [ ] MLflow Model Registry contains model `test-predictor` version `1.0` with status `Production`
-- [ ] Full comparison table: 6 strategies × 4 metrics × ≥ 1 repo documented in `docs/results/`
+- [ ] Full comparison table: 7 strategies × 4 metrics × ≥ 3 projects documented in `docs/results/` (5 baselines + XGBoost + LightGBM)
 - [ ] Early exit operating point identified: CI time reduction ≥ 25% at FNR ≤ 5%
 - [ ] `flaky_detector.py` with unit tests passing
 - [ ] Model Card document created at `docs/model-card.md`
@@ -98,7 +98,7 @@ Evaluate both best models using 5-fold time-series cross-validation to assess pr
 Produce the definitive comparison table across all strategies and select the official model for registration.
 
 **Acceptance Criteria:**
-- Script `scripts/compare_models.py` evaluates all 6 strategies on the held-out test set of ≥ 1 repo
+- Script `scripts/compare_models.py` evaluates all 7 strategies on the held-out test set of ≥ 3 projects
 - Output comparison table:
 
 | Strategy | APFD | P@10 | P@20 | R@20 | Train time | Inference time (ms/commit) |
@@ -106,8 +106,12 @@ Produce the definitive comparison table across all strategies and select the off
 | Random | | | | | — | — |
 | Alphabetical | | | | | — | — |
 | MRF | | | | | — | — |
+| Matrix-Naive | | | | | — | — |
+| Matrix-ConditionalProb | | | | | — | — |
 | XGBoost | | | | | | |
 | LightGBM | | | | | | |
+
+- **Upper bound row (reference only, not a strategy):** `Optimal-Failure` APFD loaded from RTPTorrent `optimal-failure.csv` and added to table as theoretical ceiling
 
 - Inference time measured as: time to score 100 test IDs for one commit on a single CPU core
 - **Model selection rule:** choose the model with higher APFD; in case of tie (< 0.01 difference), choose the one with lower inference time
@@ -148,7 +152,7 @@ Write a concise Model Card documenting what the model does, how it was trained, 
   2. **Training data** — repos, date range, split method, label distribution
   3. **Evaluation results** — APFD on each repo vs all baselines (table)
   4. **Feature list** — all 25+ features with one-line descriptions
-  5. **Limitations** — per-project model only; Java/Maven only; cold-start behaviour
+  5. **Limitations** — per-project model only; Java/Maven only; cold-start behaviour; class-level test granularity (RTPTorrent dataset limitation); historical TravisCI data (2014–2018 era)
   6. **How to use** — code snippet showing how to load and call the model
 
 ---

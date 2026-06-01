@@ -5,6 +5,8 @@
 **Phase:** CI Integration  
 **Effort estimate:** ~68h
 
+> **Hybrid approach (v2):** Training and evaluation data comes entirely from RTPTorrent (historical). The CI integration demo targets **one live repo** — a fork of `apache/sling` (which is in RTPTorrent) — to demonstrate real GitHub Action → FastAPI → ranked execution flow. The model was trained on historical data from the same project, so predictions are meaningful even for new commits.
+
 ---
 
 ## Definition of Done
@@ -97,15 +99,16 @@ Implement the `POST /predict` endpoint that extracts features for the incoming c
 - Endpoint at `POST /predict` in `src/serving/app.py`
 - Processing pipeline:
   1. Validate `CommitPayload`
-  2. Load git repo from `repo_path` using `gitpython`
-  3. Extract commit-level features using `CommitFeatureExtractor`
-  4. Load last 90 days of test history from SQLite at `data/test_history.db` (read-only)
-  5. For each test ID in `test_ids`: extract `TestHistoryFeatureExtractor` features + `DependencyFeatureExtractor` features
-  6. Assemble feature DataFrame (same schema as training data)
-  7. Call `model.predict_proba(feature_df)[:, 1]` to get failure probabilities
-  8. Apply `FlakyTestDetector` → move flaky tests to end of ranked list
-  9. Apply `EarlyExitStrategy` with request `threshold`
-  10. Return `PredictionResponse`
+  2. Load git repo from `repo_path` using `gitpython` (repo must be cloned locally)
+  3. Look up file changes for this commit: first from `file_changes` table (SQLite); fall back to live git diff if not found (new commits not in historical data)
+  4. Extract commit-level features using `CommitFeatureExtractor`
+  5. Load last 90 days of test history from SQLite at `data/test_history.db` (read-only)
+  6. For each test ID in `test_ids`: extract `TestHistoryFeatureExtractor` features + `DependencyFeatureExtractor` features
+  7. Assemble feature DataFrame (same schema as training data)
+  8. Call `model.predict_proba(feature_df)[:, 1]` to get failure probabilities
+  9. Apply `FlakyTestDetector` → move flaky tests to end of ranked list
+  10. Apply `EarlyExitStrategy` with request `threshold`
+  11. Return `PredictionResponse`
 - Total latency ≤ 2000ms for up to 500 test IDs
 - Latency measured and returned in `prediction_latency_ms`
 - If `repo_path` does not exist on server: return HTTP 400 `{"error": "repo_not_found"}`
@@ -158,7 +161,7 @@ Write integration tests that call the running FastAPI service with a real commit
   4. `test_predict_stop_after_within_bounds`: `stop_after_index` ≤ len(`ranked_tests`)
   5. `test_predict_invalid_sha_returns_422`: commit SHA = `"abc"` → HTTP 422
   6. `test_predict_latency_under_2s`: response time < 2000ms
-- Tests use a fixture commit SHA hardcoded from Apache Commons Lang history
+- Tests use a fixture commit SHA hardcoded from `apache/sling` history (one of the RTPTorrent projects cloned in S1-03)
 
 ---
 

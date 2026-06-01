@@ -1,18 +1,21 @@
 # Sprint 1 Backlog — Environment & Ground Truth
 
 **Duration:** Week 1–2  
-**Sprint Goal:** Development environment fully operational; CI ground truth dataset exists on disk.  
+**Sprint Goal:** Development environment fully operational; RTPTorrent dataset loaded into SQLite and validated.  
 **Phase:** Foundation & Data  
-**Effort estimate:** ~65 hours
+**Effort estimate:** ~47 hours
+
+> **Dataset change (v2):** The original approach of replaying CI history via `mvn test` on Apache Commons repos was abandoned — CI failures in those repos are predominantly caused by environment issues (JDK version mismatch, missing Maven plugins, network-dependent tests), not by test logic. The primary dataset is now **RTPTorrent** (Mattis et al., MSR '20): a published, peer-reviewed collection of TravisCI build results for 20 Java projects, available at `references/rtp-torrent-v11/`.
 
 ---
 
 ## Definition of Done
 
 - [ ] MLflow tracking UI accessible at `localhost:5000`
-- [ ] `test_history.db` contains ≥ 5,000 `(commit, test)` records with `outcome`, `duration_ms`, `timestamp`
-- [ ] Failure ratio documented per repository (imbalance report)
-- [ ] Literature notes (2–3 pages) covering ROCKET, Bertolino 2020, Elsner 2021
+- [ ] `test_history.db` contains ≥ 10,000 `(job, test)` records loaded from RTPTorrent CSVs, with `outcome`, `duration_ms`, `timestamp`
+- [ ] ≥ 3 RTPTorrent projects selected and validated (failure rate ≥ 2% each)
+- [ ] Failure ratio documented per selected project (imbalance report)
+- [ ] Literature notes (2–3 pages) covering ROCKET, Bertolino 2020, Elsner 2021, RTPTorrent (Mattis 2020)
 
 ---
 
@@ -45,12 +48,14 @@ mlflow==2.12.1
 fastapi==0.111.0
 uvicorn==0.29.0
 gitpython==3.1.43
-javalang==0.13.0
+javalang==0.13.0   # optional: used only for import-overlap features in S2-04
 pandas==2.2.2
 pyarrow==16.0.0
 evidently==0.4.22
 pytest==8.2.0
 ```
+
+> **Note:** `gitpython` is retained for reading git commit metadata (message, author, diff) from cloned repos. `javalang` is retained for dependency feature extraction (S2-04) but is now optional — RTPTorrent repos are from the Java 8/11 era so parse failure rate is low. Neither package is used to run Maven or replay CI.
 
 ---
 
@@ -85,38 +90,39 @@ services:
 
 ---
 
-### S1-03 · Target repository acquisition
+### S1-03 · RTPTorrent project selection & git repository acquisition
 
 **Priority:** Critical  
-**Estimate:** 3h
+**Estimate:** 4h
 
 **Description:**  
-Clone three Java repositories that will serve as the primary dataset. Verify each has sufficient commit history and test infrastructure.
+Select ≥ 3 projects from the RTPTorrent dataset with sufficient failure signal, then clone the corresponding GitHub repositories. Repos are cloned **read-only** for git metadata extraction only — no Maven execution.
 
 **Acceptance Criteria:**
-- All three repos cloned under `data/repos/`
-- Each repo verified: `git log --oneline | wc -l` returns ≥ 500
-- Maven build verified: `mvn test-compile -q` exits 0 on the latest commit
-- Test discovery verified: `mvn test -pl <module> -Dtest=NonExistentTest 2>&1 | grep "No tests"` confirms Surefire is configured
-- Summary table recorded in `data/repos/README.md`:
+- Script `scripts/select_rtp_projects.py` reads all `<project>.csv` files under `references/rtp-torrent-v11/rtp-torrent/`
+- For each project, computes:
+  - Total `(job, test)` pairs
+  - Overall failure rate = `(failures + errors) / count` aggregated across all jobs
+  - Number of distinct TravisCI job IDs (≈ number of builds)
+- Selection criteria:
+  - Failure rate ≥ 2%
+  - Number of builds ≥ 100
+  - Has an associated `-patches.csv` (required for commit features)
+- Summary table written to `data/rtp-project-summary.md` and printed to stdout
+- **Minimum 3 projects selected**; target 5 for broader evaluation
+- Corresponding GitHub repos cloned under `data/repos/` using URLs parsed from the `<user>@<project>` directory names:
+  - e.g., `apache@sling` → `https://github.com/apache/sling`
+- Each clone verified: `git log --oneline | wc -l` returns ≥ 100
+- `data/repos/README.md` records: project name, GitHub URL, build count, failure rate
 
-| Repo | Commits | Test count | Maven module |
-|------|---------|------------|--------------|
-| apache/commons-lang | ? | ? | . |
-| apache/commons-collections | ? | ? | . |
-| spring-projects/spring-framework | ? | ? | spring-core |
-
-**Target repos:**
+**Selection candidates (from dataset):**
 ```
-https://github.com/apache/commons-lang
-https://github.com/apache/commons-collections
-https://github.com/spring-projects/spring-framework
-```
-
-**Fallback repos** (if above have insufficient CI history):
-```
-https://github.com/google/guava
-https://github.com/junit-team/junit5
+apache@sling
+square@okhttp
+brettwooldridge@HikariCP
+eclipse@jetty.project
+Graylog2@graylog2-server
+SonarSource@sonarqube
 ```
 
 ---
@@ -146,6 +152,34 @@ Read the full ROCKET paper and extract information directly relevant to this the
 
 ---
 
+### S1-04b · Literature review — RTPTorrent (MSR 2020)
+
+**Priority:** High  
+**Estimate:** 2h
+
+**Description:**  
+Read the RTPTorrent paper and document dataset structure, collection methodology, and scope. This is required both for thesis citation and for understanding data limitations.
+
+**Acceptance Criteria:**
+- Citation added to `docs/literature/references.bib`:
+```bibtex
+@inproceedings{rtptorrent,
+  author    = {Mattis, Toni and Rein, Patrick and D{\"u}rsch, Falco and Hirschfeld, Robert},
+  title     = {{RTPTorrent}: An Open-source Dataset for Evaluating Regression Test Prioritization},
+  booktitle = {17th International Conference on Mining Software Repositories},
+  series    = {MSR '20},
+  year      = {2020},
+  doi       = {10.1145/3379597.3387458}
+}
+```
+- Notes appended to `docs/literature/supporting-notes.md`:
+  - Date range of collected builds
+  - Projects included and their characteristics
+  - Known limitations (e.g., only class-level test granularity, no method-level outcomes)
+  - How Elsner 2021 used this dataset (for positioning)
+
+---
+
 ### S1-05 · Literature review — supporting papers
 
 **Priority:** High  
@@ -162,39 +196,53 @@ Read abstracts and relevant sections of Bertolino 2020 and Elsner 2021. Extract 
 
 ---
 
-### S1-06 · CI history reconstruction pipeline
+### S1-06 · RTPTorrent CSV loader — SQLite ingestion pipeline
 
 **Priority:** Critical  
-**Estimate:** 20h
+**Estimate:** 6h
 
 **Description:**  
-Build a script that replays the CI history of a target repository by checking out each commit and running the test suite, then storing pass/fail outcomes in SQLite.
+Build a script that reads RTPTorrent CSV files and loads them into SQLite using a schema compatible with the rest of the feature extraction pipeline. This replaces the Maven replay approach entirely.
+
+**Data mapping:**
+- `<project>.csv`: `travisJobId`, `testName`, `duration`, `failures`, `errors`, `skipped` → `test_runs` table
+- `tr_all_built_commits.csv`: `tr_job_id` → `sha` mapping → populates `commit_sha` in `test_runs`
+- `<project>-patches.csv`: `sha`, `name` → `file_changes` table (used in Sprint 2 by `CommitFeatureExtractor`)
 
 **Acceptance Criteria:**
-- Script `scripts/extract_ci_history.py` accepts `--repo-path` and `--limit` arguments
-- For each commit (up to `--limit`, most recent first): checkout → run `mvn test -pl <module> -q` → parse Surefire XML reports → insert rows into SQLite
+- Script `scripts/load_rtp_dataset.py` accepts `--projects` (comma-separated list of `<user>@<project>` names) and `--rtp-path` arguments
 - SQLite schema:
 ```sql
 CREATE TABLE test_runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     repo        TEXT NOT NULL,
+    job_id      TEXT NOT NULL,         -- TravisCI job ID
+    commit_sha  TEXT,                  -- joined from tr_all_built_commits.csv; NULL if unmapped
+    test_id     TEXT NOT NULL,         -- Java class name (testName column)
+    outcome     TEXT NOT NULL,         -- PASS | FAIL | ERROR | SKIPPED
+    duration_ms REAL,                  -- duration * 1000
+    timestamp   INTEGER,               -- Unix epoch; resolved from git log by commit_sha
+    run_index   INTEGER                -- original position in TravisCI run (for APFD baseline comparison)
+);
+CREATE TABLE file_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo        TEXT NOT NULL,
     commit_sha  TEXT NOT NULL,
-    test_id     TEXT NOT NULL,        -- fully qualified class#method
-    outcome     TEXT NOT NULL,        -- PASS | FAIL | ERROR | SKIPPED
-    duration_ms REAL,
-    timestamp   INTEGER NOT NULL      -- Unix epoch of commit author date
+    file_path   TEXT NOT NULL
 );
 CREATE INDEX idx_commit ON test_runs(commit_sha);
 CREATE INDEX idx_test   ON test_runs(test_id);
+CREATE INDEX idx_fc     ON file_changes(commit_sha);
 ```
-- Commits that fail to compile are logged to `logs/compile_errors.txt` and skipped (not inserted)
-- Script is idempotent: re-running skips already-processed commits (check by `commit_sha`)
-- Surefire XML parser handles both `<testcase>` with `<failure>` child and bare passing `<testcase>`
+- Outcome derivation: `failures > 0 OR errors > 0` → `FAIL`; `skipped > 0 AND count = skipped` → `SKIPPED`; else → `PASS`
+- `timestamp` populated by joining `commit_sha` against git log of the cloned repo (after S1-03 completes)
+- Script is idempotent: re-running skips already-loaded `(repo, job_id, test_id)` triples
+- Prints summary after load: total rows, failure rate, null-commit-sha count (jobs with no SHA mapping are retained with `commit_sha = NULL` and flagged)
 
 **Implementation notes:**
-- Use `git.Repo(path).iter_commits(max_count=limit)` for iteration
-- Parse Surefire reports from `target/surefire-reports/*.xml` after each test run
-- Run with `--limit 200` per repo as initial target (expand later if time allows)
+- Use `pandas.read_csv()` for all CSV parsing
+- Join `tr_all_built_commits.csv` on `tr_job_id` to get `commit_sha`; some jobs may map to multiple SHAs (parallel matrix builds) — use the first SHA for the job
+- `timestamp` resolution: `git.Repo(path).commit(sha).committed_date`; skip if SHA not found in local clone
 
 ---
 
@@ -204,18 +252,20 @@ CREATE INDEX idx_test   ON test_runs(test_id);
 **Estimate:** 5h
 
 **Description:**  
-Validate the contents of `test_history.db` and produce a report characterising the dataset quality and class distribution.
+Validate the contents of `test_history.db` loaded from RTPTorrent and produce a report characterising dataset quality, class distribution, and suitability for model training.
 
 **Acceptance Criteria:**
 - Notebook `notebooks/01_ground_truth_validation.ipynb` created and fully executed
-- Report covers per-repo:
-  - Total commits processed vs skipped (compile errors)
-  - Total `(commit, test)` pairs
+- Report covers per selected project:
+  - Total `(job, test)` pairs loaded
+  - Jobs with `commit_sha = NULL` (unmapped) — flag if > 20%
   - Failure rate = `COUNT(outcome='FAIL') / COUNT(*)`
   - Top 10 most frequently failing tests
   - Distribution of `duration_ms` (min, median, p95, max)
-- If failure rate < 2% on any repo → flag as insufficient signal; note mitigation (expand commit window)
-- Total records across all repos ≥ 5,000
+  - Date range of builds (earliest to latest timestamp)
+- Cross-validation against RTPTorrent `<project>-offenders.csv`: verify that jobs flagged as "failure-introducing" have matching `outcome=FAIL` rows in `test_runs`
+- If failure rate < 2% on any project → that project is dropped from selection; substitute from remaining candidates
+- Total records across all selected projects ≥ 10,000
 
 ---
 
@@ -259,11 +309,12 @@ project-root/
 ## Sprint 1 — Dependency Map
 
 ```
-S1-01 (env) ──────────────────────────────────┐
-S1-02 (mlflow) ───────────────────────────────┤
-S1-03 (repos) ──→ S1-06 (CI history) ──→ S1-07 (validation)
+S1-01 (env) ──────────────────────────────────────────┐
+S1-02 (mlflow) ───────────────────────────────────────┤
+S1-03 (project selection + git clone) ──→ S1-06 (RTPTorrent loader) ──→ S1-07 (validation)
 S1-04 (ROCKET) ──┐
-S1-05 (papers) ──┴──→ Milestone: literature notes done
+S1-04b (RTPTorrent paper) ──┤
+S1-05 (papers)  ──┴──→ Milestone: literature notes done
 S1-08 (scaffold) ──→ (all future stories depend on this)
 ```
 
@@ -273,7 +324,7 @@ S1-08 (scaffold) ──→ (all future stories depend on this)
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Maven build flaky on older commits | High | Medium | Catch `subprocess.CalledProcessError`; skip and log; target 80% commit coverage |
-| Replay takes > 10 hours per repo | Medium | Medium | Run 3 repos in parallel (separate terminals); limit to 200 commits initially |
-| Failure rate < 2% (too few positives) | Low | High | Expand to 500 commits; add `commons-math` or `guava` as 4th repo |
-| javalang import fails on Java 17 syntax | Medium | Low | Pin to Java 11 commits using `git log --before=2021-01-01` |
+| Many jobs in RTPTorrent have no SHA mapping in `tr_all_built_commits.csv` | Medium | Medium | Retain unmapped rows; use job-level ordering for temporal split; resolve SHA for ≥ 70% of jobs |
+| Failure rate < 2% in all candidate projects | Low | High | Dataset has 20 projects — expand selection; `deeplearning4j` and `SonarSource` have known high failure rates |
+| Git clone fails for archived/moved repos | Medium | Low | Use Wayback Machine or dataset-provided archived mirror links (noted in dataset readme for `deeplearning4j`) |
+| `javalang` parse fails on some Java syntax | Low | Low | RTPTorrent repos are 2014–2018 era (Java 8/11); parse failure rate expected < 5%; wrap in try/except |

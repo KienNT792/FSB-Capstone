@@ -10,7 +10,7 @@
 ## Definition of Done
 
 - [ ] Dashboard at `localhost:3000` loads all panels with live data
-- [ ] 72 evaluation data points collected (6 strategies × 4 metrics × 3 repos)
+- [ ] 140 evaluation data points collected (7 strategies × 4 metrics × 5 projects)
 - [ ] Wilcoxon signed-rank test p-values documented
 - [ ] All thesis plots exported as PNG/PDF in `docs/results/plots/`
 - [ ] Failure analysis: ≥ 5 commit examples where model predicted incorrectly, with explanations
@@ -170,22 +170,23 @@ CREATE TABLE build_results (
 **Estimate:** 10h
 
 **Description:**  
-Run the definitive evaluation of all strategies across all three repositories to collect the complete dataset for thesis Chapter 4.
+Run the definitive evaluation of all strategies across all 5 selected RTPTorrent projects to collect the complete dataset for thesis Chapter 4.
 
 **Acceptance Criteria:**
 - Script `scripts/run_full_evaluation.py`
-- Evaluates 6 strategies: Random, Alphabetical, MRF, XGBoost, LightGBM, XGBoost+EarlyExit
-- Evaluates on 3 repositories: commons-lang, commons-collections, spring-core
-- Metrics collected per `(strategy, repo, commit)`: APFD, Precision@10, Precision@20, Recall@20
-- Aggregate per `(strategy, repo)`: mean, std, min, max
-- Total data points: 6 × 4 × 3 = 72 aggregate cells; raw commit-level data also saved
+- Evaluates 7 strategies: Random, Alphabetical, MRF, Matrix-Naive, Matrix-ConditionalProb, XGBoost, LightGBM
+- Evaluates on ≥ 5 RTPTorrent projects (selected in S1-03)
+- Metrics collected per `(strategy, project, job_id)`: APFD, Precision@10, Precision@20, Recall@20
+- Aggregate per `(strategy, project)`: mean, std, min, max
+- Total aggregate cells: 7 × 4 × 5 = 140; raw job-level data also saved
+- **Optimal upper bound row:** load `optimal-failure.csv` from RTPTorrent for each project and compute APFD as reference ceiling (not counted in strategy comparison)
 - All results logged to MLflow experiment `full-evaluation`
 - Results saved to:
-  - `docs/results/full_evaluation_raw.csv` (one row per commit evaluation)
-  - `docs/results/full_evaluation_summary.md` (6×4 table per repo)
+  - `docs/results/full_evaluation_raw.csv` (one row per job-level evaluation)
+  - `docs/results/full_evaluation_summary.md` (7×4 table per project)
 
 **Expected minimum results (sanity check):**
-- XGBoost APFD > MRF APFD on all 3 repos
+- XGBoost APFD > MRF APFD on ≥ 3 of 5 projects
 - XGBoost APFD std < 0.15 (stability)
 
 ---
@@ -256,7 +257,8 @@ Identify and explain cases where the model made incorrect predictions, providing
 - Identifies ≥ 10 commits from test set where model APFD < 0.5 (worst-case predictions)
 - For each: show commit message, changed files, predicted scores vs actual outcomes
 - Identifies ≥ 2 common patterns explaining model errors:
-  - Pattern examples: first occurrence of a new test, large refactoring, environment-dependent failures
+  - Pattern examples: first occurrence of a new test, large refactoring, flaky tests with no stable failure pattern
+- **Cross-reference with `<project>-offenders.csv`:** verify that commits flagged by RTPTorrent as "failure-introducing" are correctly ranked by the model (true positive rate on offender commits documented)
 - Identifies ≥ 5 commits where model significantly outperformed MRF (APFD delta > 0.2) — explain why
 - Notebook exported as PDF: `docs/results/failure_analysis.pdf`
 
@@ -278,10 +280,10 @@ S7-07 (full eval) ──→ S7-08 (stat tests) ──→ S7-09 (plots)
 
 ## Milestone M4 Checklist (end of Sprint 7)
 
-- [ ] `docs/results/full_evaluation_summary.md` exists with 72 data points
-- [ ] `docs/results/statistical_tests.md` shows p-values for all 3 comparisons × 3 repos
+- [ ] `docs/results/full_evaluation_summary.md` exists with 140 data points (7 strategies × 4 metrics × 5 projects)
+- [ ] `docs/results/statistical_tests.md` shows p-values for all 3 comparisons × 5 projects
 - [ ] All 6 plots exist in `docs/results/plots/` at 300 DPI
-- [ ] `docs/results/failure_analysis.pdf` exists
+- [ ] `docs/results/failure_analysis.pdf` exists with offenders.csv cross-reference section
 - [ ] Dashboard loads at `localhost:3000` with non-empty data
 
 > After M4: numbers are frozen. Chapter 4 of the thesis is written from these results only.  

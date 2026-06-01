@@ -10,9 +10,10 @@
 ## Definition of Done
 
 - [ ] `evaluation_framework.py` contains `APFDCalculator` validated against a hand-calculated example
-- [ ] MLflow experiment `baseline` has 3 runs (Random, Alphabetical, MRF) with APFD logged per repo
+- [ ] MLflow experiment `baseline` has 5 runs (Random, Alphabetical, MRF, MatrixNaive, MatrixConditionalProb) with APFD logged per project
+- [ ] Published RTPTorrent baselines loaded and cross-validated against own implementation (APFD delta < 0.02)
 - [ ] MLflow experiment `xgboost-tuning` has ≥ 50 trials; best model logged as artifact
-- [ ] APFD of best XGBoost model > APFD of MRF baseline on ≥ 1 repo
+- [ ] APFD of best XGBoost model > APFD of MRF baseline on ≥ 1 project
 - [ ] SHAP summary plot generated for top-10 features
 
 ---
@@ -69,23 +70,27 @@ Implement the dataset splitter that partitions `full_features.parquet` into trai
 ### S3-03 · Baseline strategy implementations
 
 **Priority:** Critical  
-**Estimate:** 8h
+**Estimate:** 12h
 
 **Description:**  
-Implement three baseline test ordering strategies as a common interface for comparison against the ML model.
+Implement five baseline test ordering strategies as a common interface for comparison against the ML model. The two matrix-based strategies mirror the algorithms documented in the RTPTorrent dataset, allowing direct cross-validation against the published baseline CSVs.
 
 **Acceptance Criteria:**
 - Base class `BaseStrategy` with method `rank(test_ids: list[str], features: pd.DataFrame) -> list[str]` in `src/evaluation/strategies.py`
-- Three concrete implementations:
+- Five concrete implementations:
 
-| Class | Logic |
-|-------|-------|
-| `RandomOrderStrategy` | Shuffle test list using `random.seed(42)` |
-| `AlphabeticalOrderStrategy` | Sort test IDs lexicographically |
-| `MostRecentlyFailedStrategy` | Sort by `days_since_last_fail` ascending (most recently failed first); tests with no failure history ranked last |
+| Class | Logic | Source |
+|-------|-------|--------|
+| `RandomOrderStrategy` | Shuffle test list using `random.seed(42)` | — |
+| `AlphabeticalOrderStrategy` | Sort test IDs lexicographically | — |
+| `MostRecentlyFailedStrategy` | Sort by `days_since_last_fail` ascending; tests with no failure history ranked last | — |
+| `MatrixNaiveStrategy` | Build file-test failure matrix `M[f,t]`; score test `t` as `sum(M[f,t] for f in changed_files)` | RTPTorrent `matrix-naive` |
+| `MatrixConditionalProbStrategy` | Rank by `P(t\|c) = sum(P(t\|f) for f in c)`; `P(t\|f) = M[t,f] / M[f]` | RTPTorrent `matrix-conditional-prob` |
 
+- `MatrixNaiveStrategy` and `MatrixConditionalProbStrategy` require a historical matrix built from `test_runs` + `file_changes` tables; method `fit(history_df, file_changes_df)` builds the matrix before `rank()` is called
 - All strategies return the complete list of test IDs (no filtering)
 - Unit tests in `tests/test_strategies.py` verify each strategy on a 10-test fixture dataset
+- **Cross-validation test:** for `MatrixNaiveStrategy`, compute APFD on one RTPTorrent project and compare against the published `matrix-naive.csv` baseline; delta must be < 0.02 (confirms correct implementation)
 
 ---
 
@@ -113,26 +118,29 @@ Implement the evaluation loop that runs a given strategy over the test set and c
 ### S3-05 · Baseline evaluation execution
 
 **Priority:** High  
-**Estimate:** 4h
+**Estimate:** 6h
 
 **Description:**  
-Execute the evaluation runner for all three baseline strategies on all three repositories and log results to MLflow.
+Execute the evaluation runner for all five baseline strategies on all selected RTPTorrent projects and log results to MLflow.
 
 **Acceptance Criteria:**
-- Script `scripts/run_baseline_eval.py` runs all three strategies on all three repos
-- MLflow experiment `baseline` created with 9 runs total (3 strategies × 3 repos)
-- Each run tagged with `repo` and `strategy` for filtering in UI
-- Baseline results table saved to `docs/results/baseline_apfd.md`:
+- Script `scripts/run_baseline_eval.py` runs all five strategies on all selected projects (≥ 3)
+- MLflow experiment `baseline` created with ≥ 15 runs total (5 strategies × ≥ 3 projects)
+- Each run tagged with `project` and `strategy` for filtering in UI
+- Baseline results table saved to `docs/results/baseline_apfd.md` (one column per project):
 
 ```markdown
-| Strategy | commons-lang APFD | commons-collections APFD | spring-core APFD |
-|----------|-------------------|--------------------------|-----------------|
-| Random   | X.XX              | X.XX                     | X.XX            |
-| Alpha    | X.XX              | X.XX                     | X.XX            |
-| MRF      | X.XX              | X.XX                     | X.XX            |
+| Strategy                | apache@sling APFD | <project-2> APFD | <project-3> APFD |
+|-------------------------|-------------------|------------------|------------------|
+| Random                  | X.XX              | X.XX             | X.XX             |
+| Alphabetical            | X.XX              | X.XX             | X.XX             |
+| MRF                     | X.XX              | X.XX             | X.XX             |
+| Matrix-Naive            | X.XX              | X.XX             | X.XX             |
+| Matrix-ConditionalProb  | X.XX              | X.XX             | X.XX             |
 ```
 
-- Expected ranges (for sanity check): Random ≈ 0.48–0.52, Alphabetical ≈ 0.50–0.55, MRF ≈ 0.60–0.70
+- **Cross-validation row added:** RTPTorrent published `recently-failed` APFD loaded from baseline CSV and compared against own MRF implementation (delta documented)
+- Expected ranges (for sanity check): Random ≈ 0.48–0.52, MRF ≈ 0.60–0.70, Matrix strategies ≈ 0.65–0.80
 
 ---
 
@@ -230,8 +238,8 @@ Complete unit test coverage for all evaluation framework components.
 ```
 S3-01 (APFD) ──┐
 S3-02 (split)  ──┤
-S3-03 (baselines) ──┴──→ S3-04 (runner) ──→ S3-05 (baseline eval)
-                                          └──→ S3-06 (XGBoost) ──→ S3-07 (tuning) ──→ S3-08 (eval + SHAP)
+S3-03 (baselines, 5 strategies) ──┴──→ S3-04 (runner) ──→ S3-05 (baseline eval, 5 × ≥3 projects)
+                                                       └──→ S3-06 (XGBoost) ──→ S3-07 (tuning) ──→ S3-08 (eval + SHAP)
 S3-09 (tests) ← depends on S3-01 through S3-06
 ```
 

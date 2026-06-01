@@ -3,14 +3,16 @@
 **Duration:** Week 3–4  
 **Sprint Goal:** `full_features.parquet` production-ready; end-to-end pipeline runs in a single command.  
 **Phase:** Foundation & Data  
-**Effort estimate:** ~70h
+**Effort estimate:** ~60h
+
+> **Dataset change (v2):** Feature extraction now operates on RTPTorrent CSV data loaded into SQLite (S1-06). Git repositories are cloned read-only for commit metadata and diff features. `javalang` is retained but optional. The `data_pipeline.py` entry point now takes `--project` (RTPTorrent project name) instead of `--repo-path`.
 
 ---
 
 ## Definition of Done
 
-- [ ] `python scripts/data_pipeline.py --repo-path <path>` produces `full_features.parquet` in ≤ 5 minutes
-- [ ] Feature matrix contains ≥ 25 columns with no data leakage (time-awareness verified)
+- [ ] `python scripts/data_pipeline.py --project apache@sling` produces `full_features.parquet` in ≤ 5 minutes
+- [ ] Feature matrix contains ≥ 20 columns with no data leakage (time-awareness verified)
 - [ ] All extractor classes covered by unit tests; `pytest tests/` passes 100%
 - [ ] EDA notebook executed end-to-end with correlation heatmap and mutual information ranking
 
@@ -23,34 +25,40 @@
 ### S2-01 · CommitFeatureExtractor — code churn features
 
 **Priority:** Critical  
-**Estimate:** 10h
+**Estimate:** 8h
 
 **Description:**  
-Implement the `CommitFeatureExtractor` class that derives file-level and line-level change metrics from a single git commit diff.
+Implement the `CommitFeatureExtractor` class that derives file-level change metrics from a commit. File-list features are sourced primarily from the `file_changes` table (loaded from RTPTorrent `patches.csv`), which is faster than running a live git diff. Line-count features (added/deleted) are derived from gitpython diff against the cloned repo.
 
 **Acceptance Criteria:**
 - Class located at `src/features/commit_extractor.py`
-- Constructor accepts a `git.Repo` object
+- Constructor accepts a `git.Repo` object and a `db_path: str` (path to SQLite)
 - Method `extract(commit_sha: str) -> dict` returns a flat dictionary
-- All features below are present in the returned dict with correct types:
+- **File-list features** (sourced from `file_changes` table — fast path):
 
 | Feature | Type | Description |
 |---------|------|-------------|
-| `files_changed_total` | int | Total files modified in diff |
+| `files_changed_total` | int | Total files in `file_changes` for this SHA |
 | `java_files_changed` | int | `.java` files only |
 | `source_files_changed` | int | `.java` files not under `test/` path |
 | `test_files_changed` | int | `.java` files under `test/` path |
-| `lines_added` | int | Total `+` lines across all changed files |
-| `lines_deleted` | int | Total `-` lines across all changed files |
+
+- **Commit metadata features** (sourced from gitpython — requires cloned repo):
+
+| Feature | Type | Description |
+|---------|------|-------------|
+| `lines_added` | int | Total `+` lines across all changed files (git diff) |
+| `lines_deleted` | int | Total `-` lines across all changed files (git diff) |
 | `churn_total` | int | `lines_added + lines_deleted` |
 | `is_merge_commit` | int | 1 if commit has > 1 parent, else 0 |
 | `commit_hour` | int | Hour of `authored_datetime` (0–23) |
 | `commit_day_of_week` | int | Weekday of `authored_datetime` (0=Mon) |
 | `keyword_risk_score` | int | Count of risk keywords in commit message |
 
+- If `commit_sha` is not found in the cloned repo (some RTPTorrent commits may be from forks), return zeros for metadata features with `commit_meta_missing=1` flag
 - Risk keywords list: `["fix", "hotfix", "bug", "patch", "revert", "urgent", "crash", "error", "broken", "regression"]`
 - Commits with no parents (initial commit) return zeros for diff-based features
-- Unit tests in `tests/test_commit_extractor.py` cover: normal commit, merge commit, initial commit, commit with no Java files
+- Unit tests in `tests/test_commit_extractor.py` cover: normal commit, merge commit, initial commit, commit not found in repo (meta missing), commit with no Java files
 
 ---
 
@@ -84,12 +92,12 @@ Extend `CommitFeatureExtractor` to compute per-author historical failure rate, u
 **Estimate:** 10h
 
 **Description:**  
-Implement `TestHistoryFeatureExtractor` that derives per-test rolling statistics from past execution records. This is the highest-signal feature group.
+Implement `TestHistoryFeatureExtractor` that derives per-test rolling statistics from past execution records. Source data is the `test_runs` table in SQLite, populated from RTPTorrent CSVs. For records where `timestamp` is NULL (unmapped SHA), fall back to ordering by `job_id` as a proxy for temporal ordering.
 
 **Acceptance Criteria:**
 - Class located at `src/features/test_history_extractor.py`
 - Method `extract(test_id: str, as_of_ts: int, history_df: pd.DataFrame) -> dict`
-- `as_of_ts` is a Unix epoch; only records with `timestamp < as_of_ts` are used
+- `as_of_ts` is a Unix epoch; only records with `timestamp < as_of_ts` are used (for records with NULL timestamp, substitute with a job-order-derived pseudo-timestamp computed during S1-06 loading)
 - Returns:
 
 | Feature | Type | Description |
@@ -116,12 +124,13 @@ Implement `TestHistoryFeatureExtractor` that derives per-test rolling statistics
 **Estimate:** 8h
 
 **Description:**  
-Implement `DependencyFeatureExtractor` that estimates the coupling between a test file and the files changed in a commit, using import-level analysis via `javalang`.
+Implement `DependencyFeatureExtractor` that estimates the coupling between a test file and the files changed in a commit, using import-level analysis via `javalang`. The changed file list is read from the `file_changes` table (from RTPTorrent `patches.csv`), and the test Java source is read from the cloned repository. RTPTorrent repos are Java 8/11 era, so `javalang` parse failure rate is expected to be low.
 
 **Acceptance Criteria:**
 - Class located at `src/features/dependency_extractor.py`
 - Method `extract(test_id: str, changed_java_files: list[str], repo_path: str) -> dict`
 - `test_id` maps to a `.java` file path (convention: `com.example.FooTest` → `src/test/java/com/example/FooTest.java`)
+- `changed_java_files` sourced from `file_changes` table (no need for live git diff)
 - Returns:
 
 | Feature | Type | Description |
@@ -131,8 +140,8 @@ Implement `DependencyFeatureExtractor` that estimates the coupling between a tes
 | `same_package` | int | 1 if any changed source file shares the test's package |
 | `changed_files_in_module` | int | Count of changed files in the same Maven module as the test |
 
-- If test file cannot be located on disk, return all zeros with flag `dependency_parse_failed=1`
-- `javalang.parse.parse()` failures (e.g. unsupported syntax) are caught; return zeros rather than raise
+- If test file cannot be located on disk (some commits may have deleted the file), return all zeros with flag `dependency_parse_failed=1`
+- `javalang.parse.parse()` failures are caught; return zeros rather than raise
 - Unit tests use a synthetic Java file fixture, not real repo files
 
 ---
@@ -165,14 +174,14 @@ Implement `FeatureJoiner` that iterates over all `(commit, test)` pairs in `test
 **Estimate:** 5h
 
 **Description:**  
-Create the single-command entry point that runs the full feature extraction pipeline for a given repository.
+Create the single-command entry point that runs the full feature extraction pipeline for a given RTPTorrent project.
 
 **Acceptance Criteria:**
 - Script at `scripts/data_pipeline.py`
-- CLI: `python scripts/data_pipeline.py --repo-path PATH --db-path PATH --output-path PATH`
-- Execution sequence: load DB → instantiate extractors → run FeatureJoiner → save Parquet
-- Completes in ≤ 5 minutes for a 200-commit dataset on standard laptop hardware
-- Prints final summary: `"Done. Shape: (N rows, M cols). Label distribution: {0: X, 1: Y}"`
+- CLI: `python scripts/data_pipeline.py --project <user>@<project> --db-path PATH --rtp-path PATH --output-path PATH`
+- Execution sequence: load test_runs + file_changes from DB → instantiate extractors → run FeatureJoiner → save Parquet
+- Completes in ≤ 5 minutes for a single project on standard laptop hardware
+- Prints final summary: `"Done. Shape: (N rows, M cols). Label distribution: {0: X, 1: Y}. commit_meta_missing: Z rows."`
 - Idempotent: if output Parquet already exists, prints `"Output exists. Use --force to overwrite."` and exits 0
 
 ---
@@ -192,7 +201,7 @@ Add a validation step that runs after `FeatureJoiner` to catch data quality issu
   - No column has `null` count > 5% of rows (except intentional sentinel columns)
   - `label` column contains only values in `{0, 1}`
   - `timestamp` column is monotonically non-decreasing within each `test_id` group (verifies ordering)
-  - Feature count ≥ 25
+  - Feature count ≥ 20
 - Called automatically at the end of `data_pipeline.py`
 
 ---
@@ -254,11 +263,11 @@ S2-09 (unit tests) ← depends on all extractor stories being complete
 
 ## Milestone M1 Checklist (end of Sprint 2)
 
-- [ ] `python scripts/data_pipeline.py --repo-path data/repos/commons-lang --db-path data/test_history.db --output-path data/features/commons-lang.parquet` runs without errors
-- [ ] Output shape: ≥ (5000, 25)
+- [ ] `python scripts/data_pipeline.py --project apache@sling --db-path data/test_history.db --rtp-path references/rtp-torrent-v11/rtp-torrent --output-path data/features/apache@sling.parquet` runs without errors
+- [ ] Output shape: ≥ (5000, 20)
 - [ ] `pytest tests/` → 0 failures
 - [ ] `notebooks/02_eda_features.ipynb` executed cleanly
-- [ ] **Decision recorded:** top-5 features confirmed; no data leakage found
+- [ ] **Decision recorded:** top-5 features confirmed; no data leakage found; `commit_meta_missing` rate documented
 
 > After M1: feature pipeline is frozen. No changes to extractor logic from Sprint 3 onward unless a critical bug is found.
 
@@ -268,7 +277,8 @@ S2-09 (unit tests) ← depends on all extractor stories being complete
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| `javalang` fails on Java 17+ syntax | High | Medium | Wrap all parse calls in try/except; return zero features; log parse failure count |
-| Feature join is too slow (> 30 min) | Medium | Medium | Cache commit-level features by SHA; process test-level in vectorised pandas operations |
+| `javalang` fails on some Java syntax | Low | Low | RTPTorrent repos are Java 8/11 era; wrap all parse calls in try/except; log parse failure rate |
+| Feature join is too slow (> 30 min) | Medium | Medium | Cache commit-level features by SHA; process test-level in vectorised pandas operations; patches.csv file-list avoids per-commit git diff |
+| High `commit_meta_missing` rate (> 30%) | Medium | Medium | Fall back to patches.csv for file features; zero out line-count features; note as limitation |
+| `file_changes` table has commits not present in cloned repo (fork commits) | Medium | Low | Graceful skip on git lookup; file-list features still available from patches.csv |
 | High correlation between feature groups (multicollinearity) | Low | Low | Document in EDA; XGBoost handles this natively; not a blocker |
-| Test file path resolution fails for nested packages | Medium | Low | Fallback: set `dependency_parse_failed=1` and zero dependency features |

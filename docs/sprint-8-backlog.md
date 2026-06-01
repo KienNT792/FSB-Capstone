@@ -11,7 +11,7 @@
 
 - [ ] Thesis PDF ≥ 60 pages, conforming to FSB template, uploaded to university system
 - [ ] Abstract in both English and Vietnamese, ≤ 300 words each
-- [ ] ≥ 15 IEEE-formatted citations in Zotero, exported as `.bib`
+- [ ] ≥ 16 IEEE-formatted citations in Zotero, exported as `.bib` (includes RTPTorrent paper)
 - [ ] Defense slide deck ≤ 15 slides
 - [ ] Demo script runs end-to-end in ≤ 5 minutes (rehearsed)
 - [ ] Source code repository public on GitHub with README sufficient to reproduce results
@@ -57,7 +57,7 @@ Write the Literature Review chapter surveying test prioritization research, ML a
 - Sections:
   1. **2.1 Test Prioritization — Overview** — definition, APFD metric (with formula), classification of approaches (history-based, coverage-based, ML-based)
   2. **2.2 History-Based Approaches** — survey MRF and similar strategies; cite Rothermel 1999 or equivalent foundational paper
-  3. **2.3 ML-Based Test Prioritization** — survey ROCKET (Elsner 2021), Bertolino 2020, and ≥ 2 other relevant papers; compare feature sets
+  3. **2.3 ML-Based Test Prioritization** — survey ROCKET (Elsner 2021), Bertolino 2020, and ≥ 2 other relevant papers; compare feature sets; note that Elsner 2021 also uses RTPTorrent — position this thesis relative to that work
   4. **2.4 Flaky Test Detection** — definition, impact on CI, existing detection methods
   5. **2.5 MLOps and Model Lifecycle Management** — MLflow, data drift, retraining strategies; cite ≥ 1 MLOps paper
   6. **2.6 Research Gap** — explicit table comparing existing work vs this thesis on: (a) language/ecosystem, (b) feature set, (c) early exit, (d) drift detection, (e) self-hosted
@@ -79,7 +79,7 @@ Write the Design and Implementation chapter describing the system architecture, 
 - Target length: 16–20 pages
 - Sections:
   1. **3.1 System Overview** — architecture diagram (Figure 3.1), description of offline and online pipelines
-  2. **3.2 Dataset Construction** — CI history reconstruction, ground truth labelling, dataset statistics table
+  2. **3.2 Dataset Construction** — motivation for using RTPTorrent (environment-induced CI failures in live repos), dataset description (Mattis et al. 2020), project selection criteria, CSV loading pipeline, ground truth labelling derivation, dataset statistics table
   3. **3.3 Feature Engineering** — all 4 feature groups described; Table 3.x listing all features with type and description; data leakage prevention strategy explained
   4. **3.4 Model Training** — XGBoost and LightGBM descriptions, preprocessing pipeline, hyperparameter tuning setup, model selection criteria
   5. **3.5 Early Exit Strategy** — confidence-based algorithm (pseudocode or flowchart), threshold selection methodology
@@ -102,8 +102,8 @@ Write the Results and Discussion chapter presenting all evaluation data and answ
 **Acceptance Criteria:**
 - Target length: 12–16 pages
 - Sections:
-  1. **4.1 Experimental Setup** — datasets used (Table 4.1: repo name, commits, test count, failure rate), split ratios, evaluation environment (hardware specs)
-  2. **4.2 RQ1 — Failure Prediction Accuracy** — APFD results table (6 strategies × 3 repos), Figure 4.1 (bar chart), statistical test results; direct answer to RQ1 in a dedicated paragraph starting "In answer to RQ1:"
+  1. **4.1 Experimental Setup** — dataset source (RTPTorrent), project selection rationale (Table 4.1: project name, builds, test count, failure rate), split ratios, evaluation environment (hardware specs)
+  2. **4.2 RQ1 — Failure Prediction Accuracy** — APFD results table (7 strategies × 5 projects + optimal upper bound), Figure 4.1 (grouped bar chart), statistical test results; direct answer to RQ1 in a dedicated paragraph starting "In answer to RQ1:"
   3. **4.3 RQ2 — Early Exit Effectiveness** — threshold sweep table, Figure 4.2 (tradeoff curve), time reduction results; direct answer to RQ2
   4. **4.4 RQ3 — Drift Detection** — PSI values table, retrain trigger behaviour, APFD before/after retrain; direct answer to RQ3
   5. **4.5 Feature Importance Analysis** — Figure 4.3 (SHAP), discussion of top-5 features

@@ -5,6 +5,8 @@
 **Phase:** CI Integration  
 **Effort estimate:** ~66h
 
+> **Hybrid demo approach (v2):** The live CI demo uses a fork of `apache/sling` (an RTPTorrent project). This means the model was trained on historical data from the same project, making the demo realistic even though training data is not live. The feedback loop (`ResultCollector` + `DriftDetector`) is validated via simulation rather than relying on sustained live CI traffic.
+
 ---
 
 ## Definition of Done
@@ -64,9 +66,10 @@ Create a reusable GitHub Actions composite action that integrates the prediction
 **Estimate:** 8h
 
 **Description:**  
-Create a GitHub Actions workflow on a fork of Apache Commons Lang that uses the custom action to run tests in predicted order.
+Create a GitHub Actions workflow on a fork of `apache/sling` (an RTPTorrent project) that uses the custom action to run tests in predicted order. Using a RTPTorrent project as the demo repo ensures the trained model has historical signal for these test classes.
 
 **Acceptance Criteria:**
+- Fork of `apache/sling` (or another RTPTorrent project with Maven build) created under the thesis GitHub account
 - Workflow file at `.github/workflows/smart-ci.yml` in the forked repo
 - Workflow triggers on `push` to `main`
 - Workflow steps:
@@ -129,7 +132,7 @@ Measure and document the end-to-end latency from the moment a push event is rece
 **Estimate:** 6h
 
 **Description:**  
-Implement the component that captures actual test outcomes after each CI run and stores them in the feedback store for drift detection and future retraining.
+Implement the component that captures actual test outcomes after each live CI run and stores them in the feedback store for drift detection and future retraining. Note: the primary training dataset (RTPTorrent) is static and historical. `ResultCollector` feeds the **incremental feedback loop** — new live outcomes collected from the demo repo — which accumulates over time and may trigger drift detection.
 
 **Acceptance Criteria:**
 - Class `ResultCollector` at `src/serving/result_collector.py`
@@ -262,7 +265,7 @@ Write and validate a step-by-step demo script that can be executed in ≤ 5 minu
 - Document at `docs/demo-script.md`
 - Covers:
   1. `docker compose up -d` → both services healthy
-  2. Push a commit to the forked Apache Commons Lang repo
+  2. Push a commit to the forked `apache/sling` repo
   3. GitHub Actions workflow triggered → show smart-CI run in progress
   4. Terminal showing Spring Boot webhook log + FastAPI prediction log
   5. `surefire-includes.txt` displayed (first 5 lines)
@@ -289,10 +292,11 @@ S6-10 (demo script) ← requires S6-02, S6-04, S6-08 complete
 
 ## Milestone M3 Checklist (end of Sprint 6)
 
-- [ ] GitHub Actions workflow run visible at `github.com/{fork}/actions` with ✅
+- [ ] GitHub Actions workflow run visible at `github.com/{fork-of-apache-sling}/actions` with ✅
 - [ ] `docs/results/sprint6-ci-comparison.png` exists showing time difference
 - [ ] `scripts/simulate_drift.py` exits 0 with all 7 steps PASS
 - [ ] `docs/demo-script.md` rehearsed and confirmed ≤ 5 minutes
+- [ ] Thesis note recorded: "RTPTorrent provides training data; live demo uses same project for ecological validity"
 
 > After M3: no new features. Sprint 7–8 are evaluation and writing only.
 
