@@ -219,3 +219,7 @@ __marimo__/
 
 # References Repo
 references/
+
+data/repos/rtp-torrent/
+data/test_history.db
+data/test_history.db-*

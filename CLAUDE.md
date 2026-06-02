@@ -6,8 +6,9 @@ Design decisions live in .claude/context/decisions-log.md. -->
 
 ## Project Status
 
-**Current phase: Sprint 1 (Planning complete — implementation not yet started)**
-No `src/`, `scripts/`, `tests/`, or `dashboard/` directories exist yet.
+**Current phase: Sprint 1 (Planning complete — dataset added; implementation not yet started)**
+No root-level `src/`, `scripts/`, `tests/`, or `dashboard/` directories exist yet.
+RTPTorrent CSV data now exists under `data/repos/rtp-torrent/`.
 All commands below are **planned**, not runnable until the sprint they belong to is implemented.
 
 See `docs/backlog/` for sprint-by-sprint implementation tasks.
@@ -53,6 +54,12 @@ FSB-Capstone/
 │   │   └── sprint-1-plan.md
 │   └── reports/
 │       └── MSE_Thesis_Proposal.docx
+├── data/
+│   ├── repos/
+│   │   └── rtp-torrent/          # RTPTorrent CSV dataset: 20 Java projects, 275 CSV files
+│   │       ├── readme.md
+│   │       └── <owner>@<repo>/   # project folders with baseline/evaluation CSVs
+│   └── scripts/                  # reserved for data helper scripts; currently empty
 └── .gitignore
 ```
 
@@ -60,8 +67,9 @@ FSB-Capstone/
 
 ```
 data/
-  repos/         # cloned Java repos — gitignored
-  features/      # generated parquet files — gitignored
+  repos/
+    rtp-torrent/ # current RTPTorrent CSV source data
+  features/      # generated parquet files - not yet created
 scripts/         # standalone pipeline scripts
 src/
   features/      # extractor modules
@@ -95,7 +103,7 @@ docker compose down
 
 ### Data pipeline (Sprint 1–2 — not yet runnable)
 ```bash
-python scripts/load_rtptorrent.py --data-dir data/rtp-torrent-v11 --limit 20000
+python scripts/load_rtptorrent.py --data-dir data/repos/rtp-torrent --limit 20000
 python scripts/data_pipeline.py                 # → data/features/full_features.parquet
 ```
 
@@ -121,14 +129,15 @@ pytest -v tests/test_apfd.py                    # single file
 
 ## Rules
 
-- IMPORTANT: Never create or modify files in `data/repos/` or `data/features/` — these are gitignored generated artifacts.
+- IMPORTANT: Preserve CSV files under `data/repos/rtp-torrent/`; they are the source dataset.
+- IMPORTANT: Generated feature artifacts belong under `data/features/` once that folder exists.
 - IMPORTANT: Always use `TimeSeriesSplit` for cross-validation — never `KFold` or random split (data leakage risk).
 - IMPORTANT: Read `.claude/context/decisions-log.md` before proposing architecture changes.
 - Do not use `javalang` as a hard dependency — wrap all AST parsing in `try/except` (Java 8/11 era repos have ~5% parse failure rate).
 - All Python code: type hints required, no `import *`.
 - Evaluation metric: APFD. Formula: `1 - (Σ rank_i / (n_tests × n_faults)) + (1 / (2n_tests))`.
 - Baselines must include: Random, Alphabetical, Most Recently Failed — any ML result is only meaningful relative to these.
-- Dataset is RTPTorrent CSVs at `data/rtp-torrent-v11/` — not Apache Commons clones.
+- Dataset is RTPTorrent CSVs at `data/repos/rtp-torrent/` — not Apache Commons clones.
 
 ---
 
