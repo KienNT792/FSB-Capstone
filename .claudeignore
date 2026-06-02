@@ -1,0 +1,13 @@
+data/
+references/
+**/*.parquet
+**/*.db
+**/*.sqlite
+**/node_modules/
+**/__pycache__/
+**/.venv/
+mlruns/
+models/
+**/*.pkl
+**/*.joblib
+.git/
