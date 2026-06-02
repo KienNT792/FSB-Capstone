@@ -7,11 +7,16 @@
 
 > **Dataset change (v2):** Feature extraction now operates on RTPTorrent CSV data loaded into SQLite (S1-06). Git repositories are cloned read-only for commit metadata and diff features. `javalang` is retained but optional. The `data_pipeline.py` entry point now takes `--project` (RTPTorrent project name) instead of `--repo-path`.
 
+> **Project selection update:** Only 3 of 20 RTPTorrent projects meet selection criteria (failure rate ≥ 2%, builds ≥ 100, has -patches.csv): `deeplearning4j@deeplearning4j` (6.0%), `l0rdn1kk0n@wicket-bootstrap` (21.2%), `neuland@jade4j` (3.7%). All S2/S3 scripts must target these three projects. The original "candidate" list in S1-03 is superseded.
+
+> **S2-00 gate:** S2-01 and S2-02 must NOT start until S2-00 is complete and `timestamp` coverage is confirmed ≥ 70% of commits. S2-02 author history features degenerate to empty history when timestamp is NULL.
+
 ---
 
 ## Definition of Done
 
-- [ ] `python scripts/data_pipeline.py --project apache@sling` produces `full_features.parquet` in ≤ 5 minutes
+- [ ] `timestamp` populated for ≥ 70% of commits across all 3 selected projects (S2-00)
+- [ ] `python scripts/data_pipeline.py --project deeplearning4j@deeplearning4j` produces `full_features.parquet` in ≤ 5 minutes
 - [ ] Feature matrix contains ≥ 20 columns with no data leakage (time-awareness verified)
 - [ ] All extractor classes covered by unit tests; `pytest tests/` passes 100%
 - [ ] EDA notebook executed end-to-end with correlation heatmap and mutual information ranking
@@ -19,6 +24,34 @@
 ---
 
 ## Stories
+
+---
+
+### S2-00 · Timestamp population — git commit date resolution
+
+**Priority:** Critical  
+**Estimate:** 3h  
+**Prerequisite:** S1-03 (repos cloned under `data/repos/`)
+
+**Description:**  
+Resolve `timestamp` for all rows in `test_runs` by looking up `committed_date` from the cloned git repositories. This must complete before S2-01 or S2-02 begin — the author history features (S2-02) and temporal split (S3-02) both depend on non-NULL timestamps. Without this step, S2-02 produces empty author histories for all commits and S3-02 falls back entirely to `job_sequence` ordering.
+
+**Acceptance Criteria:**
+- Script `scripts/add_timestamps.py` (or flag `--add-timestamps` on `load_rtp_dataset.py`) runs against the 3 selected projects
+- For each distinct `(repo, commit_sha)` pair in `test_runs`: calls `git.Repo(repo_path).commit(sha).committed_date` and batch-updates `timestamp` in the DB
+- Skips SHAs not found in the local clone (timestamp remains NULL); prints unresolved count per project
+- Timestamp coverage report after run:
+  ```
+  deeplearning4j@deeplearning4j: 952/1038 SHAs resolved (91.7%)
+  l0rdn1kk0n@wicket-bootstrap:   ...
+  neuland@jade4j:                 ...
+  ```
+- **Pass gate:** coverage ≥ 70% on each selected project. If < 70%, investigation is required before proceeding to S2-01.
+- `job_sequence` remains populated and valid as fallback for any rows where `timestamp` stays NULL after this step
+- Unit test `tests/test_add_timestamps.py`: mock a `git.Repo` with 3 commits; verify correct `UPDATE` calls and NULL-skip behaviour
+
+**Why timestamp is commit-level, not job-level:**  
+`committed_date` is the git commit authoring time — identical for all TravisCI jobs (including matrix build variants) that target the same SHA. This is intentional: the split unit in S3-02 is `commit_sha`, not `job_id`. Multiple jobs at the same commit will share the same `timestamp`.
 
 ---
 
@@ -72,7 +105,7 @@ Extend `CommitFeatureExtractor` to compute per-author historical failure rate, u
 
 **Acceptance Criteria:**
 - Method `extract_author_features(commit_sha: str, history_df: pd.DataFrame) -> dict` added to `CommitFeatureExtractor`
-- `history_df` is a DataFrame of past test runs (from `test_history.db`) with columns `[commit_sha, outcome, timestamp, author_email]`
+- `history_df` is a DataFrame of past test runs (from `test_history.db`) with columns `[commit_sha, outcome, timestamp, job_sequence, author_email]`
 - Returns:
 
 | Feature | Type | Description |
@@ -80,9 +113,13 @@ Extend `CommitFeatureExtractor` to compute per-author historical failure rate, u
 | `author_commit_count_90d` | int | Commits by this author in past 90 days |
 | `author_failure_rate_90d` | float | Fraction of this author's commits that led to ≥ 1 test failure, past 90 days |
 
-- Only commits with `timestamp < current_commit_timestamp` are included (no leakage)
-- Authors with < 3 commits in window return `author_failure_rate_90d = -1` (unseen flag)
-- Unit tests verify time-aware filtering: future commits must not influence the result
+- **Primary path (timestamp available):** only commits with `timestamp < current_commit_timestamp` are included (no leakage). 90-day window computed from `current_commit_timestamp`.
+- **Fallback path (timestamp NULL):** if `current_commit_timestamp` is NULL or > 10% of `history_df` rows have NULL timestamp, fall back to `job_sequence` ordering. Use commits with `job_sequence < current_job_sequence` as "past". The 90-day window degenerates to "all prior jobs" (no time-box) — return `author_commit_count_90d` as count of prior jobs and `author_failure_rate_90d` computed over all prior jobs. Flag this with `author_feature_fallback=1` in the output dict.
+- Authors with < 3 commits in window return `author_failure_rate_90d = -1` (unseen flag); this applies in both paths
+- Unit tests verify:
+  - Time-aware filtering: future commits must not influence the result (timestamp path)
+  - Fallback path produces non-empty results when all timestamps are NULL (job_sequence path)
+  - `author_feature_fallback` flag is set correctly in each path
 
 ---
 
@@ -251,8 +288,10 @@ Ensure full unit test coverage for all extractor classes before the feature pipe
 ## Sprint 2 — Dependency Map
 
 ```
-S2-01 (commit features) ──┐
-S2-02 (author history)  ──┤
+S2-00 (timestamp population) ──────────────────────────────────┐
+                                                                │ (gate: ≥70% coverage before S2-01/02 start)
+S2-01 (commit features) ──┐                                    ↓
+S2-02 (author history)  ──┤  ← requires S2-00 complete
 S2-03 (test history)    ──┼──→ S2-05 (FeatureJoiner) ──→ S2-06 (pipeline) ──→ S2-07 (validation)
 S2-04 (dependency)      ──┘                                                  ↓
                                                                          S2-08 (EDA)

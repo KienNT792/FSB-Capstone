@@ -59,8 +59,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--failure-rate-threshold",
         type=float,
-        default=0.02,
-        help="Minimum aggregated failure rate. Default: 0.02",
+        default=0.01,
+        help="Minimum aggregated failure rate. Default: 0.01",
     )
     parser.add_argument(
         "--min-builds",

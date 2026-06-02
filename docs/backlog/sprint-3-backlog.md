@@ -59,11 +59,34 @@ Implement the dataset splitter that partitions `full_features.parquet` into trai
 
 **Acceptance Criteria:**
 - Function `temporal_split(df: pd.DataFrame, train_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]` in `src/evaluation/splitter.py`
-- Split is based on `timestamp` column: earliest 80% of **unique commits** → train; latest 20% → test
-- Split is at commit level, not row level (all tests of a given commit stay together in the same split)
-- Validation: `assert train_df['timestamp'].max() < test_df['timestamp'].min()`
-- Function logs split stats: `"Train: {n_commits} commits, {n_rows} rows. Test: {n_commits} commits, {n_rows} rows."`
-- Unit test verifies no commit SHA appears in both splits
+- Split unit is `commit_sha`, not row or job. All rows sharing a `commit_sha` must land in the same split (matrix build jobs of the same commit are never separated).
+- **Ordering logic:**
+  1. If `timestamp` is non-NULL for a commit, use `timestamp` to rank commits.
+  2. If `timestamp` is NULL (S2-00 unresolved), use `min(job_sequence)` for that commit as ordering proxy.
+  3. If both are NULL for a commit, raise `ValueError` — this should not occur after S2-00 completes.
+- Sort commits by order key; earliest `train_ratio` fraction → train; remainder → test.
+- **No-leakage assertion (replaces timestamp comparison):**
+  ```python
+  train_shas = set(train_df['commit_sha'])
+  test_shas  = set(test_df['commit_sha'])
+  assert train_shas.isdisjoint(test_shas), \
+      f"Leakage: {len(train_shas & test_shas)} SHAs appear in both splits"
+  ```
+- **Temporal ordering assertion (when timestamps available):**
+  ```python
+  if train_df['timestamp'].notna().any() and test_df['timestamp'].notna().any():
+      train_max_ts = train_df.groupby('commit_sha')['timestamp'].first().max()
+      test_min_ts  = test_df.groupby('commit_sha')['timestamp'].first().min()
+      assert train_max_ts <= test_min_ts, \
+          f"Temporal leak: train max ts {train_max_ts} > test min ts {test_min_ts}"
+  ```
+  Note: `<=` not `<` — same-second commits on a boundary are acceptable; the SHA-disjoint assertion is the primary leakage guard.
+- Function logs split stats: `"Train: {n_commits} commits, {n_rows} rows. Test: {n_commits} commits, {n_rows} rows. Ordering: {'timestamp' if used else 'job_sequence'}."`
+- Unit tests in `tests/test_splitter.py`:
+  - SHA-disjoint: verify no commit SHA appears in both splits (primary correctness test)
+  - Timestamp path: synthetic df with known timestamps → verify correct boundary
+  - Fallback path: all timestamps NULL → verify split uses `job_sequence`, still SHA-disjoint
+  - Matrix build grouping: two `job_id` rows with same `commit_sha` must land in same split
 
 ---
 
@@ -226,7 +249,7 @@ Complete unit test coverage for all evaluation framework components.
 
 **Acceptance Criteria:**
 - `tests/test_apfd.py`: ≥ 6 test cases including edge cases (zero faults, all faults, single test)
-- `tests/test_splitter.py`: ≥ 4 test cases verifying temporal ordering and no-leakage
+- `tests/test_splitter.py`: ≥ 6 test cases — SHA-disjoint assertion, timestamp path, job_sequence fallback path, matrix-build grouping (same SHA stays together), boundary ties (same-second commits), empty test split edge case
 - `tests/test_strategies.py`: ≥ 3 test cases per strategy
 - `tests/test_runner.py`: ≥ 3 test cases with mocked MLflow to avoid real logging in CI
 - `pytest tests/` exits 0

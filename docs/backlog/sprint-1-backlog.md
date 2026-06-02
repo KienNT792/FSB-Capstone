@@ -12,8 +12,8 @@
 ## Definition of Done
 
 - [ ] MLflow tracking UI accessible at `localhost:5000`
-- [ ] `test_history.db` contains ≥ 10,000 `(job, test)` records loaded from RTPTorrent CSVs, with `outcome`, `duration_ms`, `timestamp`
-- [ ] ≥ 3 RTPTorrent projects selected and validated (failure rate ≥ 2% each)
+- [ ] `test_history.db` contains ≥ 10,000 `(job, test)` records loaded from RTPTorrent CSVs, with `outcome`, `duration_ms`, `job_sequence`; `timestamp` may be NULL pending S2-00
+- [ ] Exactly 3 RTPTorrent projects confirmed and documented: `deeplearning4j@deeplearning4j`, `l0rdn1kk0n@wicket-bootstrap`, `neuland@jade4j`
 - [ ] Failure ratio documented per selected project (imbalance report)
 - [ ] Literature notes (2–3 pages) covering ROCKET, Bertolino 2020, Elsner 2021, RTPTorrent (Mattis 2020)
 
@@ -115,15 +115,22 @@ Select ≥ 3 projects from the RTPTorrent dataset with sufficient failure signal
 - Each clone verified: `git log --oneline | wc -l` returns ≥ 100
 - `data/repos/README.md` records: project name, GitHub URL, build count, failure rate
 
-**Selection candidates (from dataset):**
-```
-apache@sling
-square@okhttp
-brettwooldridge@HikariCP
-eclipse@jetty.project
-Graylog2@graylog2-server
-SonarSource@sonarqube
-```
+**Verified selection results (actual data, not estimates):**
+
+Full scan of all 20 projects against criteria (failure rate ≥ 2%, builds ≥ 100, has -patches.csv):
+
+| Project | Rows | Jobs | Fail% | Passes? |
+|---------|------|------|-------|---------|
+| `deeplearning4j@deeplearning4j` | 15,511 | 1,038 | 6.0% | **YES** |
+| `l0rdn1kk0n@wicket-bootstrap` | 51,169 | 1,110 | 21.2% | **YES** |
+| `neuland@jade4j` | 35,887 | 932 | 3.7% | **YES** |
+| All others | — | — | < 2% | NO |
+
+**These 3 projects are the confirmed selection for all sprints.**
+
+Note on `l0rdn1kk0n@wicket-bootstrap` (21.2% fail rate): the high rate reflects a period of sustained test instability in this repo, not a single flaky test. This is a feature, not a bug — high failure signal reduces class imbalance. The project is **included**.
+
+Note on original candidates: `apache@sling` (0.49%), `SonarSource@sonarqube` (0.06%), `Graylog2@graylog2-server` (0.03%) all fail the 2% threshold. The backlog note "deeplearning4j and SonarSource have known high failure rates" was incorrect for SonarSource.
 
 ---
 
