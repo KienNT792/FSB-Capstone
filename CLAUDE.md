@@ -1,139 +1,167 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+<!-- maintainer: this file is the primary project memory for Claude Code.
+Keep it under 200 lines. Architecture detail lives in .claude/context/.
+Design decisions live in .claude/context/decisions-log.md. -->
 
-## Project Overview
+## Project Status
 
-FSB-Capstone is an academic thesis project building an **ML-based test prioritization system for Java/Maven CI pipelines**. The goal is to rank test execution order so that the most likely failing tests run first (fail-fast), reducing CI feedback latency. The primary evaluation metric is **APFD** (Average Percentage of Faults Detected).
+**Current phase: Sprint 1 (Planning complete — implementation not yet started)**
+No `src/`, `scripts/`, `tests/`, or `dashboard/` directories exist yet.
+All commands below are **planned**, not runnable until the sprint they belong to is implemented.
 
-The repository is currently in the **planning phase** — sprint backlogs exist in `docs/`, but source code has not yet been implemented. Implementation follows an 8-sprint roadmap.
+See `docs/backlog/` for sprint-by-sprint implementation tasks.
+See `.claude/context/architecture-snapshot.md` for system design details.
+See `.claude/context/decisions-log.md` for key design decisions and rationale.
 
-## Commands
+---
 
-### Python Environment Setup (Sprint 1)
-```bash
-pyenv local 3.11
-python -m venv venv
-venv\Scripts\activate       # Windows
-pip install -r requirements.txt
+## What This Project Is
+
+**AdaptCI** — an ML-based test prioritization system for Java/Maven CI pipelines.
+
+- Ranks test execution order so the most likely failing tests run first (fail-fast)
+- Reduces CI feedback latency; primary metric is **APFD** (Average Percentage of Faults Detected)
+- Dataset: **RTPTorrent** (Mattis et al., MSR '20) — pre-collected TravisCI build logs for 20 Java projects
+- Models: XGBoost and LightGBM, trained offline, served via FastAPI, integrated via GitHub Actions
+
+**NOT**: a tool that re-runs `mvn test` to collect data. RTPTorrent CSVs are the ground truth source.
+
+---
+
+## Repository Layout (Current)
+
+```
+FSB-Capstone/
+├── CLAUDE.md                    # ← you are here
+├── README.md
+├── .claude/
+│   ├── settings.local.json
+│   ├── commands/                # custom slash commands (invoke with /)
+│   │   ├── debug-results.md     # /debug-results — diagnose unexpected model outputs
+│   │   ├── experiment-plan.md   # /experiment-plan — generate ablation/eval plan
+│   │   ├── sprint-review.md     # /sprint-review — review sprint backlog status
+│   │   ├── thesis-review.md     # /thesis-review — review thesis draft section
+│   │   └── write-section.md     # /write-section — draft a thesis chapter section
+│   └── context/                 # persistent design context (read before making decisions)
+│       ├── architecture-snapshot.md
+│       ├── decisions-log.md
+│       └── results-snapshot.md
+├── docs/
+│   ├── backlog/                 # sprint-1 through sprint-8 backlogs
+│   ├── plan/
+│   │   └── sprint-1-plan.md
+│   └── reports/
+│       └── MSE_Thesis_Proposal.docx
+└── .gitignore
 ```
 
-### MLflow Tracking Server
-```bash
-docker compose up -d        # Starts MLflow UI at http://localhost:5000
-docker compose down
-```
-
-### Data Pipeline
-```bash
-python scripts/extract_ci_history.py --repo-path data/repos/commons-lang --limit 200
-python scripts/data_pipeline.py --repo-path <path>   # Produces data/features/full_features.parquet
-```
-
-### Model Training
-```bash
-python scripts/tune_xgboost.py     # 50 Optuna trials logged to MLflow
-python scripts/tune_lgbm.py
-python scripts/cross_validate.py   # 5-fold TimeSeriesSplit stability analysis
-```
-
-### Prediction Service
-```bash
-uvicorn src.serving.app:app --host 0.0.0.0 --port 8000
-# Or via Docker:
-docker compose up              # FastAPI at http://localhost:8000, Swagger at /docs
-```
-
-### Dashboard
-```bash
-cd dashboard
-npm install
-npm run dev    # Vite dev server at http://localhost:3000
-npm run build
-```
-
-### Tests
-```bash
-pytest tests/                              # Full suite
-pytest -v tests/test_commit_extractor.py  # Single file
-pytest -v tests/test_apfd.py::test_name   # Single test
-```
-
-## Architecture
-
-### Three-Phase Pipeline
-
-**1. Offline Training** (`scripts/`, `src/features/`, `src/models/`, `src/evaluation/`)
-- Clone target Java repos under `data/repos/` (Apache Commons Lang/Collections, Spring Framework)
-- `scripts/extract_ci_history.py` replays commits: checkout → `mvn test` → parse Surefire XML → store in `data/test_history.db` (SQLite)
-- `src/features/` extractors produce `data/features/full_features.parquet` with ~25 features per (commit, test) pair
-- XGBoost and LightGBM models trained with Optuna hyperparameter search, all experiments logged to MLflow
-- Best model promoted to MLflow Model Registry as `test-predictor/Production`
-
-**2. Online Prediction** (`src/serving/`)
-- FastAPI loads model from MLflow Registry on startup via `mlflow.sklearn.load_model("models:/test-predictor/Production")`
-- `POST /predict` accepts a `CommitPayload` (repo path, commit SHA, test IDs, threshold) and returns a `PredictionResponse` (ranked tests, failure probabilities, early-exit index)
-- Early exit: stop running tests once cumulative failure probability exceeds `threshold` (default 0.85), targeting ≥25% CI time reduction at ≤5% false-negative rate
-
-**3. CI Integration + Feedback Loop** (`github-action/`, `src/serving/`)
-- Custom GitHub Actions action calls the FastAPI endpoint on each push
-- Maven Surefire runs tests in predicted order via reordered test list
-- Actual outcomes fed back to trigger drift detection (Population Stability Index, PSI > 0.2 = retrain)
-- ReactJS dashboard (`dashboard/`) displays build history, APFD trends, and time saved metrics
-
-### Key Data Flows
-- `test_history.db` → feature extraction → `full_features.parquet` → model training → MLflow Registry
-- GitHub push event → GitHub Action → FastAPI `/predict` → ranked test list → Maven execution → outcome feedback
-
-### Feature Groups (25+ features)
-- **Commit**: files changed, lines added/deleted, merge commit flag, commit hour/day
-- **Author**: failure rate in 90-day window
-- **Test history**: last outcome, failure rates (7d/30d/90d), days since last failure
-- **Code ownership**: derived from commit history
-
-### Evaluation
-- APFD formula: `1 - (Σ rank_i / (n_tests × n_faults)) + (1 / (2n_tests))`
-- Baselines to beat: Random, Alphabetical, Most Recently Failed
-- Cross-validation: 5-fold `TimeSeriesSplit` (no data leakage from future → past)
-- Statistical significance: Wilcoxon signed-rank test
-
-## Planned Directory Structure
+## Planned Layout (Sprint 1+, not yet created)
 
 ```
 data/
-  repos/        # cloned Java repos (gitignored)
-  features/     # generated parquet files (gitignored)
-scripts/        # standalone pipeline scripts (extract, tune, cross_validate)
+  repos/         # cloned Java repos — gitignored
+  features/      # generated parquet files — gitignored
+scripts/         # standalone pipeline scripts
 src/
-  features/     # commit_extractor.py, test_history_extractor.py, etc.
-  models/       # xgboost_trainer.py, lgbm_trainer.py
-  evaluation/   # apfd.py, strategies.py, splitter.py, flaky_detector.py
-  serving/      # FastAPI app.py, schemas.py
-notebooks/      # EDA and validation (01_ground_truth_validation.ipynb, etc.)
-tests/          # pytest unit tests mirroring src/ structure
-github-action/  # action.yml, scripts/discover_tests.sh
-dashboard/      # ReactJS + Vite frontend
-docs/
-  literature/   # rocket-notes.md, supporting-notes.md, references.bib
-  results/      # evaluation tables, plots
-  sprint-*-backlog.md
+  features/      # extractor modules
+  models/        # trainer modules
+  serving/       # FastAPI app
+  evaluation/    # APFD, metrics, splitter
+notebooks/       # EDA and validation
+tests/           # pytest, mirrors src/ structure
+github-action/   # GitHub Actions custom action
+dashboard/       # ReactJS + Vite frontend
 ```
 
-## Key Dependencies
+---
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| xgboost | 2.0.3 | Primary ML model |
-| lightgbm | 4.3.0 | Alternative ML model |
-| scikit-learn | 1.4.2 | Pipelines, metrics, CV |
-| optuna | 3.6.1 | Hyperparameter search |
-| mlflow | 2.12.1 | Experiment tracking, model registry |
-| fastapi | 0.111.0 | Prediction service |
-| gitpython | 3.1.43 | Commit history traversal |
-| javalang | 0.13.0 | Java AST parsing |
-| evidently | 0.4.22 | Drift detection (PSI) |
-| shap | 0.44.1 | Feature importance explainability |
+## Commands
 
-MLflow backend: SQLite (local dev) with artifacts stored in `mlflow-artifacts/` (gitignored).
+### Environment (Sprint 1 — not yet runnable)
+```bash
+pyenv local 3.11
+python -m venv venv
+source venv/bin/activate        # macOS/Linux
+# venv\Scripts\activate         # Windows
+pip install -r requirements.txt
+```
 
-The `docker-compose.yml` spec is defined in `docs/sprint-1-backlog.md` (S1-02) and uses `ghcr.io/mlflow/mlflow:v2.12.1`.
+### MLflow (Sprint 1 — not yet runnable)
+```bash
+docker compose up -d            # MLflow UI at http://localhost:5000
+docker compose down
+```
+
+### Data pipeline (Sprint 1–2 — not yet runnable)
+```bash
+python scripts/load_rtptorrent.py --data-dir data/rtp-torrent-v11 --limit 20000
+python scripts/data_pipeline.py                 # → data/features/full_features.parquet
+```
+
+### Model training (Sprint 3–4 — not yet runnable)
+```bash
+python scripts/tune_xgboost.py                  # 50 Optuna trials → MLflow
+python scripts/tune_lgbm.py
+python scripts/cross_validate.py                # 5-fold TimeSeriesSplit
+```
+
+### Serving (Sprint 5 — not yet runnable)
+```bash
+uvicorn src.serving.app:app --host 0.0.0.0 --port 8000
+```
+
+### Tests (Sprint 1+ — add tests as code is implemented)
+```bash
+pytest tests/                                   # full suite
+pytest -v tests/test_apfd.py                    # single file
+```
+
+---
+
+## Rules
+
+- IMPORTANT: Never create or modify files in `data/repos/` or `data/features/` — these are gitignored generated artifacts.
+- IMPORTANT: Always use `TimeSeriesSplit` for cross-validation — never `KFold` or random split (data leakage risk).
+- IMPORTANT: Read `.claude/context/decisions-log.md` before proposing architecture changes.
+- Do not use `javalang` as a hard dependency — wrap all AST parsing in `try/except` (Java 8/11 era repos have ~5% parse failure rate).
+- All Python code: type hints required, no `import *`.
+- Evaluation metric: APFD. Formula: `1 - (Σ rank_i / (n_tests × n_faults)) + (1 / (2n_tests))`.
+- Baselines must include: Random, Alphabetical, Most Recently Failed — any ML result is only meaningful relative to these.
+- Dataset is RTPTorrent CSVs at `data/rtp-torrent-v11/` — not Apache Commons clones.
+
+---
+
+## Key Dependencies (planned `requirements.txt`)
+
+| Package       | Version | Purpose                          |
+|---------------|---------|----------------------------------|
+| xgboost       | 2.0.3   | Primary ML model                 |
+| lightgbm      | 4.3.0   | Alternative ML model             |
+| scikit-learn  | 1.4.2   | Pipelines, metrics, CV           |
+| optuna        | 3.6.1   | Hyperparameter search            |
+| mlflow        | 2.12.1  | Experiment tracking, registry    |
+| fastapi       | 0.111.0 | Prediction service               |
+| gitpython     | 3.1.43  | Commit metadata extraction       |
+| javalang      | 0.13.0  | Java AST parsing (optional)      |
+| evidently     | 0.4.22  | PSI-based drift detection        |
+| shap          | 0.44.1  | Feature importance               |
+| pandas        | 2.2.2   | Data manipulation                |
+| pyarrow       | 16.0.0  | Parquet I/O                      |
+| pytest        | 8.2.0   | Testing                          |
+
+MLflow backend: SQLite (local dev). Artifacts in `mlflow-artifacts/` (gitignored).
+
+---
+
+## Custom Slash Commands
+
+Use these by typing `/command-name` in Claude Code:
+
+| Command            | When to use                                                  |
+|--------------------|--------------------------------------------------------------|
+| `/sprint-review`   | Review current sprint backlog and task status                |
+| `/thesis-review`   | Evaluate a thesis section draft (structure, rigor, clarity)  |
+| `/write-section`   | Draft or rewrite a thesis chapter section                    |
+| `/experiment-plan` | Design ablation study or evaluation plan                     |
+| `/debug-results`   | Diagnose unexpected model results or metric anomalies        |
