@@ -221,5 +221,8 @@ __marimo__/
 references/
 
 data/repos/rtp-torrent/
+data/features/
 data/test_history.db
 data/test_history.db-*
+mlflow-artifacts/
+mlflow-db/

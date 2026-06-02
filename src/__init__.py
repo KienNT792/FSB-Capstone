@@ -1,0 +1,1 @@
+"""AdaptCI source package."""

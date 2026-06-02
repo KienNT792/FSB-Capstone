@@ -1,0 +1,13 @@
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow-artifacts:/mlflow/artifacts
+      - ./mlflow-db:/mlflow/db
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/db/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
