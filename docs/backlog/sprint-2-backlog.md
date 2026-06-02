@@ -302,7 +302,7 @@ S2-09 (unit tests) ← depends on all extractor stories being complete
 
 ## Milestone M1 Checklist (end of Sprint 2)
 
-- [ ] `python scripts/data_pipeline.py --project apache@sling --db-path data/test_history.db --rtp-path references/rtp-torrent-v11/rtp-torrent --output-path data/features/apache@sling.parquet` runs without errors
+- [ ] `python scripts/data_pipeline.py --project neuland@jade4j --db-path data/test_history.db --rtp-path references/rtp-torrent-v11/rtp-torrent --output-path data/features/neuland@jade4j.parquet` runs without errors
 - [ ] Output shape: ≥ (5000, 20)
 - [ ] `pytest tests/` → 0 failures
 - [ ] `notebooks/02_eda_features.ipynb` executed cleanly
