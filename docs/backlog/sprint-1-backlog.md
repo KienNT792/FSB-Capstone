@@ -214,15 +214,18 @@ Build a script that reads RTPTorrent CSV files and loads them into SQLite using 
 - SQLite schema:
 ```sql
 CREATE TABLE test_runs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    repo        TEXT NOT NULL,
-    job_id      TEXT NOT NULL,         -- TravisCI job ID
-    commit_sha  TEXT,                  -- joined from tr_all_built_commits.csv; NULL if unmapped
-    test_id     TEXT NOT NULL,         -- Java class name (testName column)
-    outcome     TEXT NOT NULL,         -- PASS | FAIL | ERROR | SKIPPED
-    duration_ms REAL,                  -- duration * 1000
-    timestamp   INTEGER,               -- Unix epoch; resolved from git log by commit_sha
-    run_index   INTEGER                -- original position in TravisCI run (for APFD baseline comparison)
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo         TEXT NOT NULL,
+    job_id       TEXT NOT NULL,         -- TravisCI job ID (numeric string)
+    commit_sha   TEXT,                  -- joined from tr_all_built_commits.csv; NULL if unmapped
+    test_id      TEXT NOT NULL,         -- Java class name (testName column)
+    test_index   INTEGER,               -- original position in TravisCI run order (run_index in CSV)
+    outcome      TEXT NOT NULL,         -- PASS | FAIL | ERROR | SKIPPED
+    duration_ms  REAL,                  -- duration * 1000; NULL if CSV duration field is empty
+    timestamp    INTEGER,               -- Unix epoch from git commit date; NULL until --add-timestamps run
+    job_sequence INTEGER,               -- DENSE_RANK on CAST(job_id AS INTEGER); fallback sort when timestamp IS NULL
+    run_count    INTEGER,               -- count column from CSV
+    UNIQUE(repo, job_id, test_id)
 );
 CREATE TABLE file_changes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,19 +233,38 @@ CREATE TABLE file_changes (
     commit_sha  TEXT NOT NULL,
     file_path   TEXT NOT NULL
 );
-CREATE INDEX idx_commit ON test_runs(commit_sha);
-CREATE INDEX idx_test   ON test_runs(test_id);
-CREATE INDEX idx_fc     ON file_changes(commit_sha);
+CREATE INDEX IF NOT EXISTS idx_test_runs_commit   ON test_runs(commit_sha);
+CREATE INDEX IF NOT EXISTS idx_test_runs_test_id  ON test_runs(test_id);
+CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
 ```
 - Outcome derivation: `failures > 0 OR errors > 0` → `FAIL`; `skipped > 0 AND count = skipped` → `SKIPPED`; else → `PASS`
-- `timestamp` populated by joining `commit_sha` against git log of the cloned repo (after S1-03 completes)
+- **`duration_ms` is explicitly nullable**: `square@okhttp` has 100% empty duration fields in the source CSV — these rows are loaded with `duration_ms = NULL`. This is expected and acceptable. Projects with > 10% null `duration_ms` are flagged in the summary output (does not block ingestion).
+- **`timestamp` two-phase population**:
+  - Phase 1 (this script): `timestamp = NULL` for all rows. `job_sequence` is populated using `DENSE_RANK() OVER (ORDER BY CAST(job_id AS INTEGER))` within each repo and is the ordering fallback for Sprint 2 temporal split when `timestamp` is NULL.
+  - Phase 2 (`--add-timestamps` flag, requires S1-03 repos cloned): resolves `timestamp` by looking up `committed_date` from the cloned git repo for each `commit_sha`. Rows whose `commit_sha` is not found in the local clone remain NULL.
+  - **`timestamp` is commit-level, not job-level**: multiple `job_id` values from the same commit (matrix builds) share the same `timestamp`. Sprint 2 temporal split MUST split on `commit_sha` groups, not individual rows, to avoid data leakage.
 - Script is idempotent: re-running skips already-loaded `(repo, job_id, test_id)` triples
-- Prints summary after load: total rows, failure rate, null-commit-sha count (jobs with no SHA mapping are retained with `commit_sha = NULL` and flagged)
+- Prints summary after load: total rows, failure rate, null-commit-sha count, null-duration count per project
+
+**`--add-timestamps` implementation notes (Phase 2):**
+- Requires repos cloned under `data/repos/` by S1-03
+- For each distinct `commit_sha` in `test_runs`, call `git.Repo(repo_path).commit(sha).committed_date`
+- Batch-update: `UPDATE test_runs SET timestamp = ? WHERE repo = ? AND commit_sha = ?`
+- Skip if SHA not found in local clone (remains NULL); log count of unresolved SHAs
+- After update, print: `"timestamp coverage: {n_resolved}/{n_total} distinct SHAs ({pct:.1f}%)"`
 
 **Implementation notes:**
-- Use `pandas.read_csv()` for all CSV parsing
+- Use `csv.DictReader` for all CSV parsing (not pandas — avoids memory spikes on 17M-row SonarSource CSV)
 - Join `tr_all_built_commits.csv` on `tr_job_id` to get `commit_sha`; some jobs may map to multiple SHAs (parallel matrix builds) — use the first SHA for the job
-- `timestamp` resolution: `git.Repo(path).commit(sha).committed_date`; skip if SHA not found in local clone
+- `job_sequence` is computed post-load via a single SQL UPDATE using a window function equivalent in SQLite:
+  ```sql
+  WITH ranked AS (
+      SELECT id, DENSE_RANK() OVER (PARTITION BY repo ORDER BY CAST(job_id AS INTEGER)) AS seq
+      FROM test_runs WHERE repo = ?
+  )
+  UPDATE test_runs SET job_sequence = ranked.seq
+  FROM ranked WHERE test_runs.id = ranked.id;
+  ```
 
 ---
 

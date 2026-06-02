@@ -43,6 +43,7 @@ class ProjectLoadResult:
     file_changes_inserted: int
     test_rows_seen: int
     unmapped_rows: int
+    null_duration_rows: int = 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -247,6 +248,7 @@ def create_schema(connection: sqlite3.Connection) -> None:
             outcome         TEXT NOT NULL,
             duration_ms     REAL,
             timestamp       INTEGER,
+            job_sequence    INTEGER,
             run_count       INTEGER,
             UNIQUE(repo, job_id, test_id)
         );
@@ -260,6 +262,7 @@ def create_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_test_runs_commit ON test_runs(commit_sha);
         CREATE INDEX IF NOT EXISTS idx_test_runs_test_id ON test_runs(test_id);
+        CREATE INDEX IF NOT EXISTS idx_test_runs_job_seq ON test_runs(repo, job_sequence);
         CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_file_changes_unique
             ON file_changes(repo, commit_sha, file_path);
@@ -291,14 +294,34 @@ def insert_test_batch(
             outcome,
             duration_ms,
             timestamp,
+            job_sequence,
             run_count
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """,
         rows,
     )
     connection.commit()
     return connection.total_changes - before
+
+
+def populate_job_sequence(connection: sqlite3.Connection, project: str) -> None:
+    """Assign job_sequence as a dense rank over numeric job_id within a project.
+
+    job_sequence is the fallback temporal ordering for Sprint 2 temporal_split
+    when timestamp is NULL. TravisCI job IDs are monotonically increasing integers,
+    so their numeric order reliably reflects build sequence.
+    """
+    rows = connection.execute(
+        "SELECT DISTINCT job_id FROM test_runs WHERE repo = ?", (project,)
+    ).fetchall()
+    sorted_job_ids = sorted(rows, key=lambda r: int(r[0]) if r[0].isdigit() else 0)
+    for seq, (job_id,) in enumerate(sorted_job_ids, start=1):
+        connection.execute(
+            "UPDATE test_runs SET job_sequence = ? WHERE repo = ? AND job_id = ?",
+            (seq, project, job_id),
+        )
+    connection.commit()
 
 
 def insert_file_batch(
@@ -320,9 +343,10 @@ def insert_file_batch(
 def count_main_rows(
     main_csv: Path,
     mapping: dict[str, str],
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     rows_seen = 0
     unmapped = 0
+    null_duration = 0
     with main_csv.open("r", newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         missing_columns = MAIN_COLUMNS - set(reader.fieldnames or [])
@@ -335,7 +359,9 @@ def count_main_rows(
             job_id = clean_text(row.get("travisJobId"))
             if not mapping.get(job_id):
                 unmapped += 1
-    return rows_seen, unmapped
+            if read_float(row.get("duration")) is None:
+                null_duration += 1
+    return rows_seen, unmapped, null_duration
 
 
 def count_patch_rows(patches_csv: Path) -> int:
@@ -353,10 +379,11 @@ def load_test_runs(
     project: str,
     main_csv: Path,
     mapping: dict[str, str],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     inserted = 0
     rows_seen = 0
     unmapped = 0
+    null_duration = 0
     batch: list[tuple[object, ...]] = []
 
     with main_csv.open("r", newline="", encoding="utf-8-sig") as handle:
@@ -379,7 +406,11 @@ def load_test_runs(
             skipped = read_int(row.get("skipped"))
             duration = read_float(row.get("duration"))
             duration_ms = duration * 1000 if duration is not None else None
+            if duration_ms is None:
+                null_duration += 1
 
+            # timestamp is NULL at load time; populated separately via --add-timestamps
+            # job_sequence is set after all rows are inserted (see populate_job_sequence)
             batch.append(
                 (
                     project,
@@ -389,7 +420,8 @@ def load_test_runs(
                     read_int(row.get("index")),
                     derive_outcome(failures, errors, skipped, run_count),
                     duration_ms,
-                    None,
+                    None,  # timestamp
+                    None,  # job_sequence — populated post-insert
                     run_count,
                 )
             )
@@ -400,7 +432,7 @@ def load_test_runs(
 
     if batch:
         inserted += insert_test_batch(connection, batch)
-    return inserted, rows_seen, unmapped
+    return inserted, rows_seen, unmapped, null_duration
 
 
 def load_file_changes(
@@ -448,16 +480,17 @@ def load_project(
         raise FileNotFoundError(f"No patches CSV found for {project}")
 
     if dry_run:
-        rows_seen, unmapped = count_main_rows(main_csv, mapping)
+        rows_seen, unmapped, null_duration = count_main_rows(main_csv, mapping)
         patch_rows = count_patch_rows(patches_csv)
-        return ProjectLoadResult(project, rows_seen, patch_rows, rows_seen, unmapped)
+        return ProjectLoadResult(project, rows_seen, patch_rows, rows_seen, unmapped, null_duration)
 
     if connection is None:
         raise ValueError("Database connection is required outside dry-run mode.")
 
-    test_runs_inserted, rows_seen, unmapped = load_test_runs(
+    test_runs_inserted, rows_seen, unmapped, null_duration = load_test_runs(
         connection, project, main_csv, mapping
     )
+    populate_job_sequence(connection, project)
     file_changes_inserted = load_file_changes(connection, project, patches_csv)
     return ProjectLoadResult(
         project=project,
@@ -465,6 +498,7 @@ def load_project(
         file_changes_inserted=file_changes_inserted,
         test_rows_seen=rows_seen,
         unmapped_rows=unmapped,
+        null_duration_rows=null_duration,
     )
 
 
@@ -515,16 +549,26 @@ def main() -> int:
     total_file_changes = sum(result.file_changes_inserted for result in results)
     total_rows_seen = sum(result.test_rows_seen for result in results)
     total_unmapped = sum(result.unmapped_rows for result in results)
+    total_null_dur = sum(result.null_duration_rows for result in results)
     unmapped_rate = total_unmapped / total_rows_seen if total_rows_seen else 0.0
+    null_dur_rate = total_null_dur / total_rows_seen if total_rows_seen else 0.0
     suffix = " (dry run)" if args.dry_run else ""
 
     print(
         f"Done{suffix}. Total: {total_test_runs} test_runs, "
         f"{total_file_changes} file_changes in {len(results)} projects."
     )
+    print(f"SHA unmapped:    {total_unmapped} rows ({unmapped_rate:.2%}).")
+    print(f"duration_ms NULL: {total_null_dur} rows ({null_dur_rate:.2%}).")
+    if null_dur_rate > 0.10:
+        print(
+            "WARNING: > 10% of rows have null duration_ms. "
+            "avg_duration_ms features in Sprint 2 will be unreliable for these projects."
+        )
     print(
-        f"Failed to map SHA for {total_unmapped} rows "
-        f"({unmapped_rate:.2%})."
+        "NOTE: timestamp=NULL for all rows. "
+        "Run with --add-timestamps after S1-03 repos are cloned to populate git commit dates. "
+        "job_sequence is available now as temporal ordering fallback."
     )
 
     if failures:
