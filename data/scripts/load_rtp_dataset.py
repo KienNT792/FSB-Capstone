@@ -141,7 +141,7 @@ def read_projects_from_summary(summary_path: Path) -> list[str]:
         if not line.startswith("|") or "SELECTED" not in line:
             continue
         cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) >= 5 and cells[0] != "Project":
+        if len(cells) >= 5 and cells[0] != "Project" and cells[4] == "SELECTED":
             projects.append(cells[0])
     return projects
 
