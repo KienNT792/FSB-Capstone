@@ -13,8 +13,8 @@
 
 - [ ] MLflow tracking UI accessible at `localhost:5000`
 - [ ] `test_history.db` contains ≥ 10,000 `(job, test)` records loaded from RTPTorrent CSVs, with `outcome`, `duration_ms`, `job_sequence`; `timestamp` may be NULL pending S2-00
-- [ ] Exactly 3 RTPTorrent projects confirmed and documented: `deeplearning4j@deeplearning4j`, `l0rdn1kk0n@wicket-bootstrap`, `neuland@jade4j`
-- [ ] Failure ratio documented per selected project (imbalance report)
+- [ ] Exactly 5 RTPTorrent projects confirmed and documented (failure rate ≥ 1%, builds ≥ 100, has `-patches.csv`): `deeplearning4j@deeplearning4j` (6.0%), `l0rdn1kk0n@wicket-bootstrap` (20.5%), `neuland@jade4j` (3.7%), `adamfisk@LittleProxy` (1.2%), `thinkaurelius@titan` (1.5%)
+- [ ] Failure ratio documented per selected project (imbalance report). LittleProxy and titan have failure rate < 2%; all results on these two projects must include a low-failure-rate/high-variance caveat in thesis.
 - [ ] Literature notes (2–3 pages) covering ROCKET, Bertolino 2020, Elsner 2021, RTPTorrent (Mattis 2020)
 
 ---
@@ -96,7 +96,7 @@ services:
 **Estimate:** 4h
 
 **Description:**  
-Select ≥ 3 projects from the RTPTorrent dataset with sufficient failure signal, then clone the corresponding GitHub repositories. Repos are cloned **read-only** for git metadata extraction only — no Maven execution.
+Select 5 projects from the RTPTorrent dataset with sufficient failure signal, then clone the corresponding GitHub repositories. Repos are cloned **read-only** for git metadata extraction only — no Maven execution.
 
 **Acceptance Criteria:**
 - Script `scripts/select_rtp_projects.py` reads all `<project>.csv` files under `references/rtp-torrent-v11/rtp-torrent/`
@@ -105,11 +105,11 @@ Select ≥ 3 projects from the RTPTorrent dataset with sufficient failure signal
   - Overall failure rate = `(failures + errors) / count` aggregated across all jobs
   - Number of distinct TravisCI job IDs (≈ number of builds)
 - Selection criteria:
-  - Failure rate ≥ 2%
+  - Failure rate ≥ 1%
   - Number of builds ≥ 100
   - Has an associated `-patches.csv` (required for commit features)
 - Summary table written to `data/rtp-project-summary.md` and printed to stdout
-- **Minimum 3 projects selected**; target 5 for broader evaluation
+- **Exactly 5 projects selected** for broader evaluation
 - Corresponding GitHub repos cloned under `data/repos/` using URLs parsed from the `<user>@<project>` directory names:
   - e.g., `apache@sling` → `https://github.com/apache/sling`
 - Each clone verified: `git log --oneline | wc -l` returns ≥ 100
@@ -117,20 +117,24 @@ Select ≥ 3 projects from the RTPTorrent dataset with sufficient failure signal
 
 **Verified selection results (actual data, not estimates):**
 
-Full scan of all 20 projects against criteria (failure rate ≥ 2%, builds ≥ 100, has -patches.csv):
+Full scan of all 20 projects against criteria (failure rate ≥ 1%, builds ≥ 100, has -patches.csv):
 
 | Project | Rows | Jobs | Fail% | Passes? |
 |---------|------|------|-------|---------|
 | `deeplearning4j@deeplearning4j` | 15,511 | 1,038 | 6.0% | **YES** |
-| `l0rdn1kk0n@wicket-bootstrap` | 51,169 | 1,110 | 21.2% | **YES** |
+| `l0rdn1kk0n@wicket-bootstrap` | 51,169 | 1,110 | 20.5% | **YES** |
 | `neuland@jade4j` | 35,887 | 932 | 3.7% | **YES** |
-| All others | — | — | < 2% | NO |
+| `adamfisk@LittleProxy` | 15,799 | 431 | 1.2% | **YES** |
+| `thinkaurelius@titan` | 49,998 | 941 | 1.5% | **YES** |
+| All others | — | — | < 1% | NO |
 
-**These 3 projects are the confirmed selection for all sprints.**
+**These 5 projects are the confirmed selection for all sprints.**
 
-Note on `l0rdn1kk0n@wicket-bootstrap` (21.2% fail rate): the high rate reflects a period of sustained test instability in this repo, not a single flaky test. This is a feature, not a bug — high failure signal reduces class imbalance. The project is **included**.
+Note on `l0rdn1kk0n@wicket-bootstrap` (20.5% fail rate): the high rate reflects a period of sustained test instability in this repo, not a single flaky test. This is a feature, not a bug — high failure signal reduces class imbalance. The project is **included**.
 
-Note on original candidates: `apache@sling` (0.49%), `SonarSource@sonarqube` (0.06%), `Graylog2@graylog2-server` (0.03%) all fail the 2% threshold. The backlog note "deeplearning4j and SonarSource have known high failure rates" was incorrect for SonarSource.
+Note on low-failure selected projects: `adamfisk@LittleProxy` and `thinkaurelius@titan` are included under the ADR 2026-05-10 threshold change to ≥ 1%. Results on these projects must be reported with a low-failure-rate/high-variance caveat.
+
+Note on original candidates: `apache@sling` (0.49%), `SonarSource@sonarqube` (0.06%), `Graylog2@graylog2-server` (0.03%) all fail the 1% threshold. The backlog note "deeplearning4j and SonarSource have known high failure rates" was incorrect for SonarSource.
 
 ---
 
@@ -293,7 +297,7 @@ Validate the contents of `test_history.db` loaded from RTPTorrent and produce a 
   - Distribution of `duration_ms` (min, median, p95, max)
   - Date range of builds (earliest to latest timestamp)
 - Cross-validation against RTPTorrent `<project>-offenders.csv`: verify that jobs flagged as "failure-introducing" have matching `outcome=FAIL` rows in `test_runs`
-- If failure rate < 2% on any project → that project is dropped from selection; substitute from remaining candidates
+- If failure rate < 1% on any project → that project is dropped from selection; substitute from remaining candidates
 - Total records across all selected projects ≥ 10,000
 
 ---

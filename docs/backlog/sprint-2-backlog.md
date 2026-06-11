@@ -7,7 +7,7 @@
 
 > **Dataset change (v2):** Feature extraction now operates on RTPTorrent CSV data loaded into SQLite (S1-06). Git repositories are cloned read-only for commit metadata and diff features. `javalang` is retained but optional. The `data_pipeline.py` entry point now takes `--project` (RTPTorrent project name) instead of `--repo-path`.
 
-> **Project selection update:** Only 3 of 20 RTPTorrent projects meet selection criteria (failure rate ≥ 2%, builds ≥ 100, has -patches.csv): `deeplearning4j@deeplearning4j` (6.0%), `l0rdn1kk0n@wicket-bootstrap` (21.2%), `neuland@jade4j` (3.7%). All S2/S3 scripts must target these three projects. The original "candidate" list in S1-03 is superseded.
+> **Project selection update (ADR 2026-05-10):** The selection threshold was lowered from `>= 2%` to `>= 1%` to ensure sufficient project diversity for the thesis. Five projects are selected: `deeplearning4j@deeplearning4j` (6.0%), `l0rdn1kk0n@wicket-bootstrap` (20.5%), `neuland@jade4j` (3.7%), `adamfisk@LittleProxy` (1.2%), `thinkaurelius@titan` (1.5%). S2/S3 scripts must target all 5 projects. Results on LittleProxy and titan must include explicit low-failure-rate caveats. See `decisions-log.md` (2026-05-10) for rationale.
 
 > **S2-00 gate:** S2-01 and S2-02 must NOT start until S2-00 is complete and `timestamp` coverage is confirmed ≥ 70% of commits. S2-02 author history features degenerate to empty history when timestamp is NULL.
 
@@ -15,8 +15,8 @@
 
 ## Definition of Done
 
-- [ ] `timestamp` populated for ≥ 70% of commits across all 3 selected projects (S2-00)
-- [ ] `python scripts/data_pipeline.py --project deeplearning4j@deeplearning4j` produces `full_features.parquet` in ≤ 5 minutes
+- [ ] `timestamp` populated for ≥ 70% of commits across all 5 selected projects (S2-00)
+- [ ] `python scripts/data_pipeline.py --project <selected-project>` produces `full_features.parquet` in ≤ 5 minutes for all 5 selected projects
 - [ ] Feature matrix contains ≥ 20 columns with no data leakage (time-awareness verified)
 - [ ] All extractor classes covered by unit tests; `pytest tests/` passes 100%
 - [ ] EDA notebook executed end-to-end with correlation heatmap and mutual information ranking
@@ -37,7 +37,7 @@
 Resolve `timestamp` for all rows in `test_runs` by looking up `committed_date` from the cloned git repositories. This must complete before S2-01 or S2-02 begin — the author history features (S2-02) and temporal split (S3-02) both depend on non-NULL timestamps. Without this step, S2-02 produces empty author histories for all commits and S3-02 falls back entirely to `job_sequence` ordering.
 
 **Acceptance Criteria:**
-- Script `scripts/add_timestamps.py` (or flag `--add-timestamps` on `load_rtp_dataset.py`) runs against the 3 selected projects
+- Script `scripts/add_timestamps.py` (or flag `--add-timestamps` on `load_rtp_dataset.py`) runs against the 5 selected projects
 - For each distinct `(repo, commit_sha)` pair in `test_runs`: calls `git.Repo(repo_path).commit(sha).committed_date` and batch-updates `timestamp` in the DB
 - Skips SHAs not found in the local clone (timestamp remains NULL); prints unresolved count per project
 - Timestamp coverage report after run:
