@@ -225,6 +225,5 @@ data/repos/rtp-torrent/
 data/git-repos/
 data/features/
 data/test_history.db
-data/test_history.db-*
 mlflow-artifacts/
 mlflow-db/

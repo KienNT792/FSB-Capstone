@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import argparse
 import csv
-import sqlite3
 import sys
+
+import duckdb
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -48,13 +49,13 @@ class ProjectLoadResult:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Load RTPTorrent project CSVs into SQLite."
+        description="Load RTPTorrent project CSVs into DuckDB."
     )
     parser.add_argument(
         "--db-path",
         type=Path,
         required=True,
-        help="SQLite database path to create or append to.",
+        help="DuckDB database path to create or append to.",
     )
     parser.add_argument(
         "--rtp-path",
@@ -219,13 +220,11 @@ def load_commit_mapping(mapping_path: Path) -> dict[str, str]:
     return mapping
 
 
-def connect_database(db_path: Path, force: bool) -> sqlite3.Connection:
+def connect_database(db_path: Path, force: bool) -> duckdb.DuckDBPyConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
-    connection.execute("PRAGMA foreign_keys = ON;")
-    connection.execute("PRAGMA journal_mode = WAL;")
+    connection = duckdb.connect(str(db_path))
     if force:
-        connection.executescript(
+        connection.execute(
             """
             DROP TABLE IF EXISTS test_runs;
             DROP TABLE IF EXISTS file_changes;
@@ -235,11 +234,11 @@ def connect_database(db_path: Path, force: bool) -> sqlite3.Connection:
     return connection
 
 
-def create_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript(
+def create_schema(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
         """
         CREATE TABLE IF NOT EXISTS test_runs (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              INTEGER PRIMARY KEY,
             repo            TEXT NOT NULL,
             job_id          TEXT NOT NULL,
             commit_sha      TEXT,
@@ -254,7 +253,7 @@ def create_schema(connection: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS file_changes (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              INTEGER PRIMARY KEY,
             repo            TEXT NOT NULL,
             commit_sha      TEXT NOT NULL,
             file_path       TEXT NOT NULL
@@ -279,10 +278,10 @@ def derive_outcome(failures: int, errors: int, skipped: int, run_count: int) -> 
 
 
 def insert_test_batch(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     rows: list[tuple[object, ...]],
 ) -> int:
-    before = connection.total_changes
+    before = connection.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
     connection.executemany(
         """
         INSERT OR IGNORE INTO test_runs (
@@ -302,33 +301,44 @@ def insert_test_batch(
         rows,
     )
     connection.commit()
-    return connection.total_changes - before
+    after = connection.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
+    return int(after - before)
 
 
-def populate_job_sequence(connection: sqlite3.Connection, project: str) -> None:
+def populate_job_sequence(connection: duckdb.DuckDBPyConnection, project: str) -> None:
     """Assign job_sequence as a dense rank over numeric job_id within a project.
 
     job_sequence is the fallback temporal ordering for Sprint 2 temporal_split
     when timestamp is NULL. TravisCI job IDs are monotonically increasing integers,
     so their numeric order reliably reflects build sequence.
+    Uses a single window-function UPDATE to avoid loading all job_ids into RAM.
     """
-    rows = connection.execute(
-        "SELECT DISTINCT job_id FROM test_runs WHERE repo = ?", (project,)
-    ).fetchall()
-    sorted_job_ids = sorted(rows, key=lambda r: int(r[0]) if r[0].isdigit() else 0)
-    for seq, (job_id,) in enumerate(sorted_job_ids, start=1):
-        connection.execute(
-            "UPDATE test_runs SET job_sequence = ? WHERE repo = ? AND job_id = ?",
-            (seq, project, job_id),
-        )
+    connection.execute(
+        """
+        UPDATE test_runs
+        SET job_sequence = ranked.seq
+        FROM (
+            SELECT
+                job_id,
+                DENSE_RANK() OVER (
+                    ORDER BY TRY_CAST(job_id AS BIGINT) NULLS LAST, job_id
+                ) AS seq
+            FROM test_runs
+            WHERE repo = ?
+        ) AS ranked
+        WHERE test_runs.repo = ?
+          AND test_runs.job_id = ranked.job_id;
+        """,
+        (project, project),
+    )
     connection.commit()
 
 
 def insert_file_batch(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     rows: list[tuple[str, str, str]],
 ) -> int:
-    before = connection.total_changes
+    before = connection.execute("SELECT COUNT(*) FROM file_changes").fetchone()[0]
     connection.executemany(
         """
         INSERT OR IGNORE INTO file_changes (repo, commit_sha, file_path)
@@ -337,7 +347,8 @@ def insert_file_batch(
         rows,
     )
     connection.commit()
-    return connection.total_changes - before
+    after = connection.execute("SELECT COUNT(*) FROM file_changes").fetchone()[0]
+    return int(after - before)
 
 
 def count_main_rows(
@@ -375,7 +386,7 @@ def count_patch_rows(patches_csv: Path) -> int:
 
 
 def load_test_runs(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     project: str,
     main_csv: Path,
     mapping: dict[str, str],
@@ -436,7 +447,7 @@ def load_test_runs(
 
 
 def load_file_changes(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     project: str,
     patches_csv: Path,
 ) -> int:
@@ -462,7 +473,7 @@ def load_file_changes(
 
 
 def load_project(
-    connection: sqlite3.Connection | None,
+    connection: duckdb.DuckDBPyConnection | None,
     rtp_path: Path,
     project: str,
     mapping: dict[str, str],
