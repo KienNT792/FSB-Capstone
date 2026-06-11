@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import sqlite3
 import sys
+
+import duckdb
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -60,13 +61,13 @@ class ProjectTimestampReport:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Populate SQLite test_runs.timestamp from local Git clones."
+        description="Populate DuckDB test_runs.timestamp from local Git clones."
     )
     parser.add_argument(
         "--db-path",
         type=Path,
         required=True,
-        help="SQLite database containing the test_runs table.",
+        help="DuckDB database containing the test_runs table.",
     )
     parser.add_argument(
         "--git-root",
@@ -106,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Report resolvability without updating SQLite.",
+        help="Report resolvability without updating DuckDB.",
     )
     return parser.parse_args()
 
@@ -155,12 +156,14 @@ def resolve_projects(args: argparse.Namespace) -> list[str]:
     return deduped
 
 
-def validate_schema(connection: sqlite3.Connection) -> None:
-    rows = connection.execute("PRAGMA table_info(test_runs);").fetchall()
+def validate_schema(connection: duckdb.DuckDBPyConnection) -> None:
+    rows = connection.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_runs';"
+    ).fetchall()
     if not rows:
-        raise ValueError("SQLite table not found: test_runs")
+        raise ValueError("DuckDB table not found: test_runs")
 
-    columns = {row[1] for row in rows}
+    columns = {row[0] for row in rows}
     required = {"repo", "commit_sha", "timestamp"}
     missing = sorted(required - columns)
     if missing:
@@ -170,7 +173,7 @@ def validate_schema(connection: sqlite3.Connection) -> None:
 
 
 def fetch_commit_groups(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     project: str,
 ) -> list[CommitGroup]:
     rows = connection.execute(
@@ -231,7 +234,7 @@ def is_sha_not_found_error(exc: Exception) -> bool:
 
 
 def update_timestamp(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     project: str,
     commit_sha: str,
     timestamp: int,
@@ -249,7 +252,7 @@ def update_timestamp(
 
 
 def resolve_project_timestamps(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     project: str,
     git_root: Path,
     dry_run: bool,
@@ -352,11 +355,11 @@ def print_report(
 
 def main() -> int:
     args = parse_args()
-    require_path(args.db_path, "SQLite database")
+    require_path(args.db_path, "DuckDB database")
     require_path(args.git_root, "Git clone root")
     projects = resolve_projects(args)
 
-    connection = sqlite3.connect(args.db_path)
+    connection = duckdb.connect(str(args.db_path))
     try:
         validate_schema(connection)
         reports = [

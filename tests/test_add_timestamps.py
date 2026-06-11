@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
+import duckdb
 import pytest
 
 from scripts import add_timestamps
@@ -28,12 +28,12 @@ class FakeRepo:
         return FakeCommit(self.dates[commit_sha])
 
 
-def create_test_db(tmp_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(tmp_path / "test_history.db")
-    connection.executescript(
+def create_test_db(tmp_path: Path) -> duckdb.DuckDBPyConnection:
+    connection = duckdb.connect(str(tmp_path / "test_history.db"))
+    connection.execute(
         """
         CREATE TABLE test_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,
             repo TEXT NOT NULL,
             job_id TEXT NOT NULL,
             commit_sha TEXT,
@@ -48,7 +48,7 @@ def create_test_db(tmp_path: Path) -> sqlite3.Connection:
 
 
 def insert_run(
-    connection: sqlite3.Connection,
+    connection: duckdb.DuckDBPyConnection,
     repo: str,
     job_id: str,
     commit_sha: str | None,
@@ -73,7 +73,7 @@ def make_git_repo_dir(tmp_path: Path, project: str) -> Path:
     return git_root
 
 
-def timestamps_by_test(connection: sqlite3.Connection) -> dict[str, int | None]:
+def timestamps_by_test(connection: duckdb.DuckDBPyConnection) -> dict[str, int | None]:
     rows = connection.execute(
         "SELECT test_id, timestamp FROM test_runs ORDER BY test_id;"
     ).fetchall()
