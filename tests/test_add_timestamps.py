@@ -32,8 +32,9 @@ def create_test_db(tmp_path: Path) -> duckdb.DuckDBPyConnection:
     connection = duckdb.connect(str(tmp_path / "test_history.db"))
     connection.execute(
         """
+        CREATE SEQUENCE test_runs_id_seq START 1;
         CREATE TABLE test_runs (
-            id INTEGER PRIMARY KEY,
+            id BIGINT PRIMARY KEY DEFAULT nextval('test_runs_id_seq'),
             repo TEXT NOT NULL,
             job_id TEXT NOT NULL,
             commit_sha TEXT,

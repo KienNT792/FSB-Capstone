@@ -222,14 +222,11 @@ def load_commit_mapping(mapping_path: Path) -> dict[str, str]:
 
 def connect_database(db_path: Path, force: bool) -> duckdb.DuckDBPyConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = duckdb.connect(str(db_path))
     if force:
-        connection.execute(
-            """
-            DROP TABLE IF EXISTS test_runs;
-            DROP TABLE IF EXISTS file_changes;
-            """
-        )
+        for path in (db_path, Path(str(db_path) + ".wal")):
+            if path.exists():
+                path.unlink()
+    connection = duckdb.connect(str(db_path))
     create_schema(connection)
     return connection
 
@@ -237,8 +234,11 @@ def connect_database(db_path: Path, force: bool) -> duckdb.DuckDBPyConnection:
 def create_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         """
+        CREATE SEQUENCE IF NOT EXISTS test_runs_id_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS file_changes_id_seq START 1;
+
         CREATE TABLE IF NOT EXISTS test_runs (
-            id              BIGSERIAL PRIMARY KEY,
+            id              BIGINT PRIMARY KEY DEFAULT nextval('test_runs_id_seq'),
             repo            TEXT NOT NULL,
             job_id          TEXT NOT NULL,
             commit_sha      TEXT,
@@ -253,7 +253,7 @@ def create_schema(connection: duckdb.DuckDBPyConnection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS file_changes (
-            id              BIGSERIAL PRIMARY KEY,
+            id              BIGINT PRIMARY KEY DEFAULT nextval('file_changes_id_seq'),
             repo            TEXT NOT NULL,
             commit_sha      TEXT NOT NULL,
             file_path       TEXT NOT NULL
@@ -422,7 +422,7 @@ def load_test_runs(
             if duration_ms is None:
                 null_duration += 1
 
-            # timestamp is NULL at load time; populated separately via --add-timestamps
+            # timestamp is NULL at load time; populated separately by scripts/add_timestamps.py
             # job_sequence is set after all rows are inserted (see populate_job_sequence)
             batch.append(
                 (
@@ -580,7 +580,7 @@ def main() -> int:
         )
     print(
         "NOTE: timestamp=NULL for all rows. "
-        "Run with --add-timestamps after S1-03 repos are cloned to populate git commit dates. "
+        "Run scripts/add_timestamps.py after S1-03 repos are cloned to populate git commit dates. "
         "job_sequence is available now as temporal ordering fallback."
     )
 
