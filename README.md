@@ -46,7 +46,7 @@ python data/scripts/select_rtp_projects.py --rtp-path data/repos/rtp-torrent
 
 The script writes `data/rtp-project-summary.md`.
 
-## SQLite Load
+## DuckDB Load
 
 Load selected projects from the summary:
 
@@ -92,6 +92,5 @@ The following are generated locally and ignored by git:
 - `data/repos/rtp-torrent/`
 - `data/features/`
 - `data/test_history.db`
-- `data/test_history.db-*`
 - `mlflow-artifacts/`
 - `mlflow-db/`
