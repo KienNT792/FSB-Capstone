@@ -1,7 +1,7 @@
 # Sprint 1 Execution Plan - Environment & Ground Truth
 
 **Duration:** Week 1-2  
-**Sprint Goal:** Local development environment is operational; RTPTorrent CSV data under the current repo layout is selected, loaded into SQLite, and validated.  
+**Sprint Goal:** Local development environment is operational; RTPTorrent CSV data under the current repo layout is selected, loaded into DuckDB, and validated.  
 **Phase:** Foundation & Data  
 **Estimated effort:** ~47h  
 **Repo snapshot date:** 2026-06-02  
@@ -112,7 +112,7 @@ FSB-Capstone/
 - [ ] MLflow UI is accessible at `http://localhost:5000` through `docker compose up -d`.
 - [ ] `python data/scripts/select_rtp_projects.py --rtp-path data/repos/rtp-torrent` writes `data/rtp-project-summary.md`.
 - [ ] At least 3 RTPTorrent projects are marked `SELECTED` with failure rate >= 2%, build count >= 100, and an available `-patches.csv`.
-- [ ] `python data/scripts/load_rtp_dataset.py --db-path data/test_history.db --rtp-path data/repos/rtp-torrent --auto --force` creates and loads SQLite data.
+- [ ] `python data/scripts/load_rtp_dataset.py --db-path data/test_history.db --rtp-path data/repos/rtp-torrent --auto --force` creates and loads DuckDB data.
 - [ ] `test_runs` contains at least 10,000 `(repo, job_id, test_id)` rows with `outcome` and `duration_ms`.
 - [ ] `file_changes` is populated from selected projects' `-patches.csv` files.
 - [ ] Null `commit_sha` rate is reported overall and per selected project.
@@ -205,7 +205,7 @@ Acceptance criteria:
 **Estimate:** 2h  
 **Primary output:** `docker-compose.yml`
 
-Create local MLflow tracking with SQLite backend and a local artifact directory.
+Create local MLflow tracking with a SQLite backend (MLflow's own tracking store) and a local artifact directory.
 
 Recommended `docker-compose.yml`:
 
@@ -337,7 +337,7 @@ Acceptance criteria:
 
 ---
 
-### S1-06 - RTPTorrent CSV Loader to SQLite
+### S1-06 - RTPTorrent CSV Loader to DuckDB
 
 **Priority:** Critical  
 **Estimate:** 6h  
@@ -417,7 +417,7 @@ Acceptance criteria:
 - Loader exits 0 for selected projects.
 - Re-running with the same DB is idempotent through `UNIQUE(repo, job_id, test_id)` and `INSERT OR IGNORE`.
 - Console output reports inserted `test_runs`, inserted `file_changes`, and unmapped SHA rate.
-- `data/test_history.db` and SQLite WAL/SHM files stay uncommitted.
+- `data/test_history.db` and DuckDB WAL files stay uncommitted.
 
 ---
 
@@ -493,7 +493,7 @@ README must document:
 
 - How to activate `.venv`.
 - How to run project selection from `data/scripts/select_rtp_projects.py`.
-- How to load SQLite from `data/scripts/load_rtp_dataset.py`.
+- How to load DuckDB from `data/scripts/load_rtp_dataset.py`.
 - How to start MLflow.
 - Where source RTPTorrent CSVs live.
 
@@ -511,7 +511,7 @@ Acceptance criteria:
 S1-01 environment
   ├── S1-02 MLflow
   ├── S1-03 project selection
-  │     └── S1-06 SQLite loader
+  │     └── S1-06 DuckDB loader
   │           └── S1-07 validation notebook
   └── S1-08 scaffold
 
@@ -528,7 +528,7 @@ S1-04 ROCKET notes
 | Plan/code path mismatch returns because older docs refer to `scripts/` or `data/rtp-torrent/` | Medium | Medium | Treat `data/scripts/` and `data/repos/rtp-torrent/` as canonical for Sprint 1 |
 | Many RTPTorrent jobs have no SHA mapping | Medium | Medium | Keep rows with `commit_sha = NULL`; report null rate in S1-06/S1-07 |
 | Selected projects have weak failure signal after loading | Medium | High | Replace projects using `data/rtp-project-summary.md` candidates |
-| SQLite file grows large | Medium | Low | Keep DB gitignored; regenerate from CSVs when needed |
+| DuckDB database grows large | Medium | Low | Keep DB gitignored; regenerate from CSVs when needed |
 | Future Git clones collide with dataset path | Medium | Medium | Use `data/git-repos/` for clones if needed, not `data/repos/rtp-torrent/` |
 
 ---
@@ -545,11 +545,11 @@ python -c "import xgboost, lightgbm, mlflow, fastapi, git, javalang, evidently; 
 # Project selection
 python data/scripts/select_rtp_projects.py --rtp-path data/repos/rtp-torrent
 
-# SQLite load
+# DuckDB load
 python data/scripts/load_rtp_dataset.py --db-path data/test_history.db --rtp-path data/repos/rtp-torrent --auto --force
 
 # Database smoke checks
-python -c "import sqlite3; c=sqlite3.connect('data/test_history.db'); print(c.execute('select count(*) from test_runs').fetchone()[0]); print(c.execute('select count(*) from file_changes').fetchone()[0]); c.close()"
+python -c "import duckdb; c=duckdb.connect('data/test_history.db'); print(c.execute('select count(*) from test_runs').fetchone()[0]); print(c.execute('select count(*) from file_changes').fetchone()[0]); c.close()"
 
 # MLflow
 docker compose up -d

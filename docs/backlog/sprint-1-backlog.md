@@ -1,7 +1,7 @@
 # Sprint 1 Backlog — Environment & Ground Truth
 
 **Duration:** Week 1–2  
-**Sprint Goal:** Development environment fully operational; RTPTorrent dataset loaded into SQLite and validated.  
+**Sprint Goal:** Development environment fully operational; RTPTorrent dataset loaded into DuckDB and validated.  
 **Phase:** Foundation & Data  
 **Effort estimate:** ~47 hours
 
@@ -207,13 +207,13 @@ Read abstracts and relevant sections of Bertolino 2020 and Elsner 2021. Extract 
 
 ---
 
-### S1-06 · RTPTorrent CSV loader — SQLite ingestion pipeline
+### S1-06 · RTPTorrent CSV loader — DuckDB ingestion pipeline
 
 **Priority:** Critical  
 **Estimate:** 6h
 
 **Description:**  
-Build a script that reads RTPTorrent CSV files and loads them into SQLite using a schema compatible with the rest of the feature extraction pipeline. This replaces the Maven replay approach entirely.
+Build a script that reads RTPTorrent CSV files and loads them into DuckDB using a schema compatible with the rest of the feature extraction pipeline. This replaces the Maven replay approach entirely.
 
 **Data mapping:**
 - `<project>.csv`: `travisJobId`, `testName`, `duration`, `failures`, `errors`, `skipped` → `test_runs` table
@@ -222,10 +222,10 @@ Build a script that reads RTPTorrent CSV files and loads them into SQLite using 
 
 **Acceptance Criteria:**
 - Script `scripts/load_rtp_dataset.py` accepts `--projects` (comma-separated list of `<user>@<project>` names) and `--rtp-path` arguments
-- SQLite schema:
+- DuckDB schema:
 ```sql
 CREATE TABLE test_runs (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           INTEGER PRIMARY KEY,
     repo         TEXT NOT NULL,
     job_id       TEXT NOT NULL,         -- TravisCI job ID (numeric string)
     commit_sha   TEXT,                  -- joined from tr_all_built_commits.csv; NULL if unmapped
@@ -234,18 +234,19 @@ CREATE TABLE test_runs (
     outcome      TEXT NOT NULL,         -- PASS | FAIL | ERROR | SKIPPED
     duration_ms  REAL,                  -- duration * 1000; NULL if CSV duration field is empty
     timestamp    INTEGER,               -- Unix epoch from git commit date; NULL until --add-timestamps run
-    job_sequence INTEGER,               -- DENSE_RANK on CAST(job_id AS INTEGER); fallback sort when timestamp IS NULL
+    job_sequence INTEGER,               -- DENSE_RANK on TRY_CAST(job_id AS BIGINT); fallback sort when timestamp IS NULL
     run_count    INTEGER,               -- count column from CSV
     UNIQUE(repo, job_id, test_id)
 );
 CREATE TABLE file_changes (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          INTEGER PRIMARY KEY,
     repo        TEXT NOT NULL,
     commit_sha  TEXT NOT NULL,
     file_path   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_test_runs_commit   ON test_runs(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_test_runs_test_id  ON test_runs(test_id);
+CREATE INDEX IF NOT EXISTS idx_test_runs_job_seq  ON test_runs(repo, job_sequence);
 CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
 ```
 - Outcome derivation: `failures > 0 OR errors > 0` → `FAIL`; `skipped > 0 AND count = skipped` → `SKIPPED`; else → `PASS`
@@ -267,14 +268,18 @@ CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
 **Implementation notes:**
 - Use `csv.DictReader` for all CSV parsing (not pandas — avoids memory spikes on 17M-row SonarSource CSV)
 - Join `tr_all_built_commits.csv` on `tr_job_id` to get `commit_sha`; some jobs may map to multiple SHAs (parallel matrix builds) — use the first SHA for the job
-- `job_sequence` is computed post-load via a single SQL UPDATE using a window function equivalent in SQLite:
+- `job_sequence` is computed post-load via a single SQL UPDATE using DuckDB's native window function support:
   ```sql
-  WITH ranked AS (
-      SELECT id, DENSE_RANK() OVER (PARTITION BY repo ORDER BY CAST(job_id AS INTEGER)) AS seq
-      FROM test_runs WHERE repo = ?
-  )
-  UPDATE test_runs SET job_sequence = ranked.seq
-  FROM ranked WHERE test_runs.id = ranked.id;
+  UPDATE test_runs
+  SET job_sequence = ranked.seq
+  FROM (
+      SELECT job_id,
+             DENSE_RANK() OVER (ORDER BY TRY_CAST(job_id AS BIGINT) NULLS LAST, job_id) AS seq
+      FROM test_runs
+      WHERE repo = ?
+  ) AS ranked
+  WHERE test_runs.repo = ?
+    AND test_runs.job_id = ranked.job_id;
   ```
 
 ---

@@ -100,9 +100,9 @@ Implement the `POST /predict` endpoint that extracts features for the incoming c
 - Processing pipeline:
   1. Validate `CommitPayload`
   2. Load git repo from `repo_path` using `gitpython` (repo must be cloned locally)
-  3. Look up file changes for this commit: first from `file_changes` table (SQLite); fall back to live git diff if not found (new commits not in historical data)
+  3. Look up file changes for this commit: first from `file_changes` table (DuckDB); fall back to live git diff if not found (new commits not in historical data)
   4. Extract commit-level features using `CommitFeatureExtractor`
-  5. Load last 90 days of test history from SQLite at `data/test_history.db` (read-only)
+  5. Load last 90 days of test history from DuckDB at `data/test_history.db` (read-only)
   6. For each test ID in `test_ids`: extract `TestHistoryFeatureExtractor` features + `DependencyFeatureExtractor` features
   7. Assemble feature DataFrame (same schema as training data)
   8. Call `model.predict_proba(feature_df)[:, 1]` to get failure probabilities
@@ -135,7 +135,7 @@ Package the FastAPI service as a Docker image and update `docker-compose.yml` to
   - `CMD ["uvicorn", "src.serving.app:app", "--host", "0.0.0.0", "--port", "8000"]`
 - `docker-compose.yml` updated with `predictor` service:
   - Depends on `mlflow` service
-  - Mounts `./data` as volume at `/app/data` (so SQLite and repos are accessible)
+  - Mounts `./data` as volume at `/app/data` (so DuckDB database and repos are accessible)
   - Environment variable `MLFLOW_TRACKING_URI=http://mlflow:5000`
 - `docker compose up` starts both services without errors
 - `curl http://localhost:8000/health` returns HTTP 200 from host machine

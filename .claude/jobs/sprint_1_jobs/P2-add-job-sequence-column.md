@@ -1,4 +1,4 @@
-# P2 — Add `job_sequence` Column to SQLite Schema
+# P2 — Add `job_sequence` Column to DuckDB Schema
 
 **Priority:** P2  
 **Effort estimate:** 1–2 hours  
@@ -36,60 +36,56 @@ ALTER TABLE test_runs ADD COLUMN job_sequence INTEGER;
 
 ### 2. Populate column with DENSE_RANK equivalent
 
-SQLite does not support `UPDATE ... FROM (window function)` directly in older versions. Use the two-step approach from `sprint-1-backlog.md` S1-06:
+DuckDB supports `UPDATE ... FROM (subquery with window function)` natively. Run once per selected project:
 
 ```sql
--- For each repo, compute DENSE_RANK and update
--- Run once per selected project, or iterate all distinct repos
-
--- Step A: Create a temp ranking table
-CREATE TEMPORARY TABLE _job_rank AS
-SELECT
-    id,
-    DENSE_RANK() OVER (PARTITION BY repo ORDER BY CAST(job_id AS INTEGER)) AS seq
-FROM test_runs;
-
--- Step B: Apply rankings
 UPDATE test_runs
-SET job_sequence = (SELECT seq FROM _job_rank WHERE _job_rank.id = test_runs.id);
-
--- Step C: Cleanup
-DROP TABLE _job_rank;
+SET job_sequence = ranked.seq
+FROM (
+    SELECT job_id,
+           DENSE_RANK() OVER (ORDER BY TRY_CAST(job_id AS BIGINT) NULLS LAST, job_id) AS seq
+    FROM test_runs
+    WHERE repo = '<project>'
+) AS ranked
+WHERE test_runs.repo = '<project>'
+  AND test_runs.job_id = ranked.job_id;
 ```
 
-Alternatively, use Python with pandas/sqlite3 for the DENSE_RANK computation if the SQLite version does not support window functions in UPDATE context:
+Or via Python to iterate all distinct repos:
 
 ```python
-import sqlite3
-import pandas as pd
+import duckdb
 
-con = sqlite3.connect("data/test_history.db")
+con = duckdb.connect("data/test_history.db")
 
-df = pd.read_sql("SELECT id, repo, CAST(job_id AS INTEGER) as job_int FROM test_runs", con)
-df["job_sequence"] = df.groupby("repo")["job_int"].rank(method="dense").astype(int)
-
-# Batch update in chunks to avoid memory issues on 22M rows
-chunk_size = 100_000
-for start in range(0, len(df), chunk_size):
-    chunk = df.iloc[start:start+chunk_size][["id", "job_sequence"]]
-    con.executemany("UPDATE test_runs SET job_sequence = ? WHERE id = ?",
-                    chunk[["job_sequence", "id"]].values.tolist())
+repos = [row[0] for row in con.execute("SELECT DISTINCT repo FROM test_runs").fetchall()]
+for repo in repos:
+    con.execute("""
+        UPDATE test_runs
+        SET job_sequence = ranked.seq
+        FROM (
+            SELECT job_id,
+                   DENSE_RANK() OVER (ORDER BY TRY_CAST(job_id AS BIGINT) NULLS LAST, job_id) AS seq
+            FROM test_runs
+            WHERE repo = ?
+        ) AS ranked
+        WHERE test_runs.repo = ?
+          AND test_runs.job_id = ranked.job_id;
+    """, (repo, repo))
     con.commit()
-    print(f"Updated rows {start} to {start+len(chunk)}")
+    print(f"Updated job_sequence for {repo}")
 
 con.close()
 ```
 
-> **Note:** 22.5M rows — batch update is mandatory. Do not attempt a single `executemany` call on the full dataset.
-
 ### 3. Verify the update
 
 ```python
-import sqlite3
-con = sqlite3.connect("data/test_history.db")
+import duckdb
+con = duckdb.connect("data/test_history.db")
 
 # Check column exists
-cols = [r[1] for r in con.execute("PRAGMA table_info(test_runs)").fetchall()]
+cols = [r[0] for r in con.execute("DESCRIBE test_runs").fetchall()]
 assert "job_sequence" in cols, "Column missing!"
 
 # Check no NULLs remain
@@ -127,9 +123,9 @@ Also add `CREATE INDEX IF NOT EXISTS idx_test_runs_job_seq ON test_runs(repo, jo
 
 ```powershell
 python -c "
-import sqlite3
-c = sqlite3.connect('data/test_history.db')
-cols = [r[1] for r in c.execute('PRAGMA table_info(test_runs)').fetchall()]
+import duckdb
+c = duckdb.connect('data/test_history.db')
+cols = [r[0] for r in c.execute('DESCRIBE test_runs').fetchall()]
 print('Columns:', cols)
 print('NULL job_sequence:', c.execute('SELECT COUNT(*) FROM test_runs WHERE job_sequence IS NULL').fetchone()[0])
 r = c.execute('SELECT repo, MIN(job_sequence), MAX(job_sequence) FROM test_runs GROUP BY repo LIMIT 5').fetchall()

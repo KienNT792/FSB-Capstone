@@ -5,7 +5,7 @@
 **Phase:** Foundation & Data  
 **Effort estimate:** ~60h
 
-> **Dataset change (v2):** Feature extraction now operates on RTPTorrent CSV data loaded into SQLite (S1-06). Git repositories are cloned read-only for commit metadata and diff features. `javalang` is retained but optional. The `data_pipeline.py` entry point now takes `--project` (RTPTorrent project name) instead of `--repo-path`.
+> **Dataset change (v2):** Feature extraction now operates on RTPTorrent CSV data loaded into DuckDB (S1-06). Git repositories are cloned read-only for commit metadata and diff features. `javalang` is retained but optional. The `data_pipeline.py` entry point now takes `--project` (RTPTorrent project name) instead of `--repo-path`.
 
 > **Project selection update (ADR 2026-05-10):** The selection threshold was lowered from `>= 2%` to `>= 1%` to ensure sufficient project diversity for the thesis. Five projects are selected: `deeplearning4j@deeplearning4j` (6.0%), `l0rdn1kk0n@wicket-bootstrap` (20.5%), `neuland@jade4j` (3.7%), `adamfisk@LittleProxy` (1.2%), `thinkaurelius@titan` (1.5%). S2/S3 scripts must target all 5 projects. Results on LittleProxy and titan must include explicit low-failure-rate caveats. See `decisions-log.md` (2026-05-10) for rationale.
 
@@ -65,7 +65,7 @@ Implement the `CommitFeatureExtractor` class that derives file-level change metr
 
 **Acceptance Criteria:**
 - Class located at `src/features/commit_extractor.py`
-- Constructor accepts a `git.Repo` object and a `db_path: str` (path to SQLite)
+- Constructor accepts a `git.Repo` object and a `db_path: str` (path to DuckDB database)
 - Method `extract(commit_sha: str) -> dict` returns a flat dictionary
 - **File-list features** (sourced from `file_changes` table — fast path):
 
@@ -129,7 +129,7 @@ Extend `CommitFeatureExtractor` to compute per-author historical failure rate, u
 **Estimate:** 10h
 
 **Description:**  
-Implement `TestHistoryFeatureExtractor` that derives per-test rolling statistics from past execution records. Source data is the `test_runs` table in SQLite, populated from RTPTorrent CSVs. For records where `timestamp` is NULL (unmapped SHA), fall back to ordering by `job_id` as a proxy for temporal ordering.
+Implement `TestHistoryFeatureExtractor` that derives per-test rolling statistics from past execution records. Source data is the `test_runs` table in DuckDB, populated from RTPTorrent CSVs. For records where `timestamp` is NULL (unmapped SHA), fall back to ordering by `job_id` as a proxy for temporal ordering.
 
 **Acceptance Criteria:**
 - Class located at `src/features/test_history_extractor.py`
