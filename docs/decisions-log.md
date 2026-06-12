@@ -47,3 +47,22 @@ Each entry follows the ADR-lite format below.
 **Rationale:** Unblocks Sprint 1 close-out without requiring all 5 repos to be cloned before loader can run. Phase 2 gate (≥70% coverage per project) must pass before S2-01 and S2-02 are started.
 
 **Consequences:** `temporal_split` in S3-02 must split per-project independently, not on merged dataframe. SHA-disjoint assertion replaces timestamp monotonicity assertion. S2-02 author features use `job_sequence` fallback when `timestamp NULL` and set `author_feature_fallback=1` flag.
+
+---
+
+## Decision 4 - timestamp resolution uses batched Git CLI lookup
+
+**Date:** 2026-06-12  
+**Status:** Decided
+
+**Context:** The original `scripts/add_timestamps.py` implementation used GitPython commit lookup one SHA at a time. This created high per-SHA subprocess latency and made `deeplearning4j@deeplearning4j` impractically slow. The repository was cloned with `--filter=blob:none`; all required commit objects existed locally, but many were not reachable from refs, so `git log --all` alone did not cover every RTPTorrent SHA.
+
+**Decision:** Resolve timestamps with local Git CLI calls:
+
+1. Use `git log --all --format=%H %ct` once per repository for reachable commits.
+2. Use `git show --no-patch --format=%H %ct` for unresolved SHAs that exist as orphaned/unreachable objects.
+3. Batch fallback `git show` calls in chunks of 200 SHAs to avoid the Windows command-line length limit.
+
+**Rationale:** This keeps timestamp enrichment deterministic and local while removing GitPython per-SHA overhead. It also handles blobless clone object stores where commits exist but are not reachable from any current ref.
+
+**Consequences:** Timestamp enrichment now passes for all selected projects at 100% distinct-SHA coverage. Rows with `commit_sha IS NULL` still cannot be timestamped and must use `job_sequence` fallback or be filtered explicitly.

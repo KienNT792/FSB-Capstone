@@ -8,24 +8,18 @@ import pytest
 from scripts import add_timestamps
 
 
-BadName = type("BadName", (Exception,), {})
-
-
-class FakeCommit:
-    def __init__(self, committed_date: int) -> None:
-        self.committed_date = committed_date
-
-
-class FakeRepo:
+class FakeResolver:
     def __init__(self, dates: dict[str, int]) -> None:
         self.dates = dates
-        self.calls: list[str] = []
+        self.calls: list[set[str]] = []
 
-    def commit(self, commit_sha: str) -> FakeCommit:
-        self.calls.append(commit_sha)
-        if commit_sha not in self.dates:
-            raise BadName(commit_sha)
-        return FakeCommit(self.dates[commit_sha])
+    def __call__(
+        self,
+        repo_path: Path,
+        shas: set[str],
+    ) -> tuple[dict[str, int], int]:
+        self.calls.append(set(shas))
+        return {sha: self.dates[sha] for sha in shas if sha in self.dates}, 0
 
 
 def create_test_db(tmp_path: Path) -> duckdb.DuckDBPyConnection:
@@ -93,8 +87,8 @@ def test_resolves_shas_and_updates_all_matching_rows(
     insert_run(connection, project, "4", "sha-c", "test-d")
     insert_run(connection, project, "5", None, "test-null-sha")
     git_root = make_git_repo_dir(tmp_path, project)
-    fake_repo = FakeRepo({"sha-a": 100, "sha-b": 200, "sha-c": 300})
-    monkeypatch.setattr(add_timestamps, "create_git_repo", lambda path: fake_repo)
+    fake_resolver = FakeResolver({"sha-a": 100, "sha-b": 200, "sha-c": 300})
+    monkeypatch.setattr(add_timestamps, "bulk_resolve_timestamps", fake_resolver)
 
     report = add_timestamps.resolve_project_timestamps(
         connection, project, git_root, dry_run=False
@@ -121,8 +115,8 @@ def test_missing_sha_is_skipped_and_counted(
     insert_run(connection, project, "1", "sha-a", "test-a")
     insert_run(connection, project, "2", "sha-missing", "test-b")
     git_root = make_git_repo_dir(tmp_path, project)
-    fake_repo = FakeRepo({"sha-a": 100})
-    monkeypatch.setattr(add_timestamps, "create_git_repo", lambda path: fake_repo)
+    fake_resolver = FakeResolver({"sha-a": 100})
+    monkeypatch.setattr(add_timestamps, "bulk_resolve_timestamps", fake_resolver)
 
     report = add_timestamps.resolve_project_timestamps(
         connection, project, git_root, dry_run=False
@@ -142,14 +136,14 @@ def test_already_timestamped_sha_is_skipped_by_default(
     insert_run(connection, project, "1", "sha-existing", "test-a", timestamp=123)
     insert_run(connection, project, "2", "sha-new", "test-b")
     git_root = make_git_repo_dir(tmp_path, project)
-    fake_repo = FakeRepo({"sha-new": 456})
-    monkeypatch.setattr(add_timestamps, "create_git_repo", lambda path: fake_repo)
+    fake_resolver = FakeResolver({"sha-new": 456})
+    monkeypatch.setattr(add_timestamps, "bulk_resolve_timestamps", fake_resolver)
 
     report = add_timestamps.resolve_project_timestamps(
         connection, project, git_root, dry_run=False
     )
 
-    assert fake_repo.calls == ["sha-new"]
+    assert fake_resolver.calls == [{"sha-new"}]
     assert report.resolved_shas == 2
     assert timestamps_by_test(connection) == {"test-a": 123, "test-b": 456}
 
@@ -174,8 +168,8 @@ def test_dry_run_does_not_update_database(
     connection = create_test_db(tmp_path)
     insert_run(connection, project, "1", "sha-a", "test-a")
     git_root = make_git_repo_dir(tmp_path, project)
-    fake_repo = FakeRepo({"sha-a": 100})
-    monkeypatch.setattr(add_timestamps, "create_git_repo", lambda path: fake_repo)
+    fake_resolver = FakeResolver({"sha-a": 100})
+    monkeypatch.setattr(add_timestamps, "bulk_resolve_timestamps", fake_resolver)
 
     report = add_timestamps.resolve_project_timestamps(
         connection, project, git_root, dry_run=True

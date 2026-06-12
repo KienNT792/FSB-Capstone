@@ -2,7 +2,7 @@
 """
 Populate test_runs.timestamp from local Git commit metadata.
 
-Timestamps are resolved at commit level from GitPython's committed_date value.
+Timestamps are resolved at commit level from local `git` CLI metadata.
 Rows without commit_sha, missing local repositories, or SHAs not present in the
 local clone remain NULL and can still use job_sequence as temporal fallback.
 """
@@ -202,13 +202,6 @@ def fetch_commit_groups(
     ]
 
 
-def create_git_repo(repo_path: Path):
-    from git import Repo
-
-    add_process_safe_directory(repo_path)
-    return Repo(repo_path)
-
-
 def add_process_safe_directory(repo_path: Path) -> None:
     """Trust a local clone for this process without writing global git config."""
     safe_path = repo_path.resolve().as_posix()
@@ -224,13 +217,74 @@ def add_process_safe_directory(repo_path: Path) -> None:
     os.environ[f"GIT_CONFIG_VALUE_{existing_count}"] = safe_path
 
 
-def is_sha_not_found_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return (
-        exc.__class__.__name__ in {"BadName", "BadObject"}
-        or "could not be resolved" in message
-        or " missing" in message
-    )
+def bulk_resolve_timestamps(
+    repo_path: Path,
+    shas: set[str],
+) -> tuple[dict[str, int], int]:
+    """Resolve commit timestamps for *shas* from the local git clone.
+
+    Strategy:
+    1. `git log --all --format=%H %ct` — one call covers all reachable commits.
+    2. For SHAs unreachable from refs (orphaned objects kept by blobless clones),
+       fall back to `git show --no-patch --format=%H %ct SHA1 SHA2 ...` which
+       reads directly from the object store regardless of reachability.
+
+    Returns (sha_to_ts, git_error_count).
+    """
+    import subprocess
+
+    add_process_safe_directory(repo_path)
+
+    sha_to_ts: dict[str, int] = {}
+    try:
+        result = subprocess.run(
+            ["git", "log", "--all", "--format=%H %ct"],
+            cwd=str(repo_path),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[0] in shas:
+                    sha_to_ts[parts[0]] = int(parts[1])
+    except Exception:
+        return {}, len(shas)
+
+    missing = shas - sha_to_ts.keys()
+    if not missing:
+        return sha_to_ts, 0
+
+    # Fallback for commits unreachable from any ref.
+    # Batch into chunks of 200 to stay under Windows 32k command-line limit.
+    git_error = 0
+    missing_list = sorted(missing)
+    chunk_size = 200
+    for i in range(0, len(missing_list), chunk_size):
+        chunk = missing_list[i : i + chunk_size]
+        try:
+            show = subprocess.run(
+                ["git", "show", "--no-patch", "--format=%H %ct"] + chunk,
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if show.returncode == 0:
+                for line in show.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) == 2 and parts[0] in missing:
+                        try:
+                            sha_to_ts[parts[0]] = int(parts[1])
+                        except ValueError:
+                            pass
+            else:
+                git_error += len(chunk)
+        except Exception:
+            git_error += len(chunk)
+
+    return sha_to_ts, git_error
 
 
 def update_timestamp(
@@ -287,34 +341,20 @@ def resolve_project_timestamps(
             missing_repo=len(unresolved_groups),
         )
 
-    try:
-        git_repo = create_git_repo(repo_path)
-    except Exception:
-        return ProjectTimestampReport(
-            project=project,
-            total_shas=len(groups),
-            resolved_shas=resolved_shas,
-            eligible_rows=eligible_rows,
-            timestamped_rows=timestamped_rows,
-            git_error=len(unresolved_groups),
-        )
+    needed_shas = {g.commit_sha for g in unresolved_groups}
+    sha_to_ts, git_error = bulk_resolve_timestamps(repo_path, needed_shas)
 
     sha_not_found = 0
-    git_error = 0
     for group in unresolved_groups:
-        try:
-            timestamp = int(git_repo.commit(group.commit_sha).committed_date)
-        except Exception as exc:
-            if is_sha_not_found_error(exc):
-                sha_not_found += 1
-            else:
-                git_error += 1
+        ts = sha_to_ts.get(group.commit_sha)
+        if ts is None:
+            sha_not_found += 1
             continue
 
         resolved_shas += 1
         timestamped_rows += group.row_count - group.timestamped_rows
         if not dry_run:
-            update_timestamp(connection, project, group.commit_sha, timestamp)
+            update_timestamp(connection, project, group.commit_sha, ts)
 
     if not dry_run:
         connection.commit()
