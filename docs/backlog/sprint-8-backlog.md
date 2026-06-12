@@ -108,7 +108,7 @@ Write the Results and Discussion chapter presenting all evaluation data and answ
   4. **4.4 RQ3 — Drift Detection** — PSI values table, retrain trigger behaviour, APFD before/after retrain; direct answer to RQ3
   5. **4.5 Feature Importance Analysis** — Figure 4.3 (SHAP), discussion of top-5 features
   6. **4.6 Failure Analysis** — ≥ 2 error patterns discussed; ≥ 2 success patterns discussed
-  7. **4.7 Threats to Validity** — internal validity (data leakage prevention), external validity (3 repos, Java only), construct validity (APFD as metric)
+  7. **4.7 Threats to Validity** — internal validity (data leakage prevention), external validity (5 Java projects from RTPTorrent, historical TravisCI data only), construct validity (APFD as metric). Note LittleProxy and titan separately as low-failure-rate caveats.
 - Each RQ answer paragraph explicitly references the metric values from the results tables
 - No new results introduced in Discussion that were not shown in Results tables
 

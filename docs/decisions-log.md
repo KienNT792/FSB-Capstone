@@ -50,6 +50,28 @@ Each entry follows the ADR-lite format below.
 
 ---
 
+## Sprint 1 Retrospective
+
+**Date:** 2026-06-12  
+**Actual duration:** ~6 weeks (2026-05-01 → 2026-06-12)  
+**Planned duration:** 2 weeks
+
+**Root causes of ~3× overrun:**
+
+1. **S2-00 full-scope instead of pilot** — the original backlog called for a pilot-only timestamp resolution on `jade4j`. The decision was made mid-sprint to resolve all 5 projects at once. This was the right call (100% SHA coverage on all projects), but it was unplanned scope that consumed ~1 additional week.
+
+2. **GitPython → batched CLI rewrite** — the original `add_timestamps.py` used GitPython per-SHA lookup, which proved too slow for `deeplearning4j` (>5 min) and failed on orphaned commits in blobless clones. Diagnosing and rewriting to batched `git log --all` + `git show` fallback consumed another ~1 week.
+
+3. **Blobless clone edge cases** — `jade4j` is an archived repo; its commit objects are not reachable from any current ref. This required a second pass with `git show` per SHA and added unanticipated investigation time.
+
+**Carry-forward actions:**
+
+- Set a hard mid-sprint checkpoint at day 7 of each sprint. If no first deliverable exists, re-scope immediately, do not wait until end of sprint.
+- If a script approach changes (e.g., library swap), treat it as a new story and log it before implementing; untracked rewrites are the primary source of invisible time loss.
+- S2-00 is now fully closed; do not revisit timestamp resolution unless a coverage regression is detected.
+
+---
+
 ## Decision 4 - timestamp resolution uses batched Git CLI lookup
 
 **Date:** 2026-06-12  
@@ -66,3 +88,40 @@ Each entry follows the ADR-lite format below.
 **Rationale:** This keeps timestamp enrichment deterministic and local while removing GitPython per-SHA overhead. It also handles blobless clone object stores where commits exist but are not reachable from any current ref.
 
 **Consequences:** Timestamp enrichment now passes for all selected projects at 100% distinct-SHA coverage. Rows with `commit_sha IS NULL` still cannot be timestamped and must use `job_sequence` fallback or be filtered explicitly.
+
+---
+
+## MSE_Thesis_Proposal.docx — Verified Status (2026-06-12)
+
+- **Section 3.1 / Phase 1 deliverables:** Correctly states "5 projects, build count, failure rate ≥1%". OK.
+- **Section 3.3 (dataset selection):** Correctly states "five projects qualify: wicket-bootstrap 21.16%, jade4j 19.61%, deeplearning4j 7.76%, LittleProxy 1.61%, titan 1.25%" with ≥1% threshold and sensitivity analysis note for ≥2% in Appendix A. OK.
+- **Section 5.1 / RQ table:** Correctly states "5 RTPTorrent projects (failure rate ≥1%; sensitivity analysis at ≥2% in Appendix A)". OK.
+- **SQLite → DuckDB in .docx: completed manually.** Two instances patched (Section 3.3 criterion (1) and Architecture table Feature Store row). No further action required on the .docx.
+
+---
+
+## Decision 5 — feature_source is an audit column, excluded from model inputs
+
+**Date:** 2026-06-12  
+**Status:** Decided
+
+**Context:** S2-02 and S2-07 require a column `feature_source` (`'timestamp'` | `'job_sequence'`) to track which ordering path was used per row and to assert that the fallback rate per project matches the raw null `commit_sha` fraction. The question arose whether to include this column in the model feature matrix.
+
+**Decision:** `feature_source` is an audit/validation column only. It is retained in the output Parquet for traceability but is explicitly excluded from the `X` matrix passed to model training, alongside `commit_sha`, `test_id`, `label`, and `timestamp`.
+
+**Rationale:** `feature_source` correlates with project identity: `adamfisk@LittleProxy` has ~30% `job_sequence` fallback rows while `neuland@jade4j` has ~0.1%. Including it as a model feature risks the model learning a project-identity proxy rather than a semantic CI signal. This would violate the per-project temporal split assumption and inflate cross-project generalization claims in the evaluation.
+
+**Consequences:** `FeatureJoiner` (S2-05) must exclude `feature_source` from the `X` matrix at construction time. `validate_features` (S2-07) checks `feature_source` distribution against the null `commit_sha` baseline but must not count it toward the ≥20 feature column requirement.
+
+---
+
+## Resolved Drift
+
+### SonarSource "high failure rate" claim in sprint-1-backlog.md Risks table
+
+**Resolved:** 2026-06-12
+
+**Original text (committed, now corrected):** The Risks table in `docs/backlog/sprint-1-backlog.md` stated:
+> "Failure rate < 2% in all candidate projects | Low | High | Dataset has 20 projects — expand selection; `deeplearning4j` and `SonarSource` have known high failure rates"
+
+**Correction:** `SonarSource@sonarqube` has a measured failure rate of 0.03% across 17M+ test rows — one of the lowest in the corpus. It does not qualify at any of the thresholds used (2% or 1%). The claim was an incorrect assumption made before the full-corpus scan was run. The Risks row was updated to reflect the actual post-scan outcome: threshold was lowered to ≥1%, 5 projects were selected, and the risk is marked resolved.

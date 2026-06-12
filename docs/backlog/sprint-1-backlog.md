@@ -366,6 +366,6 @@ S1-08 (scaffold) ──→ (all future stories depend on this)
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
 | Many jobs in RTPTorrent have no SHA mapping in `tr_all_built_commits.csv` | Medium | Medium | Retain unmapped rows; use job-level ordering for temporal split; resolve SHA for ≥ 70% of jobs |
-| Failure rate < 2% in all candidate projects | Low | High | Dataset has 20 projects — expand selection; `deeplearning4j` and `SonarSource` have known high failure rates |
+| Failure rate < 1% in all candidate projects | Low | High | Dataset has 20 projects — expand selection; `deeplearning4j` (3.78%) and `wicket-bootstrap` (20.47%) have the highest failure rates. **Resolved:** threshold lowered to ≥1%; 5 projects selected. See decisions-log.md Decision 2. |
 | Git clone fails for archived/moved repos | Medium | Low | Use Wayback Machine or dataset-provided archived mirror links (noted in dataset readme for `deeplearning4j`) |
 | `javalang` parse fails on some Java syntax | Low | Low | RTPTorrent repos are 2014–2018 era (Java 8/11); parse failure rate expected < 5%; wrap in try/except |

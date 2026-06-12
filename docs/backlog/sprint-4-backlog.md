@@ -98,7 +98,7 @@ Evaluate both best models using 5-fold time-series cross-validation to assess pr
 Produce the definitive comparison table across all strategies and select the official model for registration.
 
 **Acceptance Criteria:**
-- Script `scripts/compare_models.py` evaluates all 7 strategies on the held-out test set of ≥ 3 projects
+- Script `scripts/compare_models.py` evaluates all 7 strategies on the held-out test set of all 5 selected projects
 - Output comparison table:
 
 | Strategy | APFD | P@10 | P@20 | R@20 | Train time | Inference time (ms/commit) |

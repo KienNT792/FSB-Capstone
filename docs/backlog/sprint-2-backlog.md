@@ -116,10 +116,23 @@ Extend `CommitFeatureExtractor` to compute per-author historical failure rate, u
 - **Primary path (timestamp available):** only commits with `timestamp < current_commit_timestamp` are included (no leakage). 90-day window computed from `current_commit_timestamp`.
 - **Fallback path (timestamp NULL):** if `current_commit_timestamp` is NULL or > 10% of `history_df` rows have NULL timestamp, fall back to `job_sequence` ordering. Use commits with `job_sequence < current_job_sequence` as "past". The 90-day window degenerates to "all prior jobs" (no time-box) — return `author_commit_count_90d` as count of prior jobs and `author_failure_rate_90d` computed over all prior jobs. Flag this with `author_feature_fallback=1` in the output dict.
 - Authors with < 3 commits in window return `author_failure_rate_90d = -1` (unseen flag); this applies in both paths
+- **`feature_source` audit column:** every feature row must include `feature_source = 'timestamp' | 'job_sequence'` to track which ordering was used. This column is written by `FeatureJoiner` (S2-05) and must NOT be used as a model input feature — exclude it from the feature matrix alongside `commit_sha`, `test_id`, `label`, `timestamp`.
+- **Acceptance criterion (integrity check):** after building the full feature parquet, assert that the fraction of rows with `feature_source='job_sequence'` per project matches the fraction of rows with `commit_sha IS NULL` in `test_runs`, using the per-project tolerances below. A mismatch outside tolerance indicates a join logic bug.
+
+| Project | Null `commit_sha` % (baseline) | Tolerance type | Tolerance |
+|---|---:|---|---|
+| `adamfisk@LittleProxy` | 30.42% | relative | ±1% |
+| `l0rdn1kk0n@wicket-bootstrap` | 19.33% | relative | ±1% |
+| `thinkaurelius@titan` | 12.91% | relative | ±1% |
+| `deeplearning4j@deeplearning4j` | 5.70% | relative | ±1% |
+| `neuland@jade4j` | 0.10% | absolute | ±0.5 percentage points |
+
+Rolling-window features (`failure_rate_7d/30d/90d`) drop leading rows per project that lack sufficient history. This drop is not evenly distributed between timestamp-based and `job_sequence`-based ordering, which can shift the observed `feature_source` ratio away from the raw null-`commit_sha` baseline. For low-baseline projects (jade4j at 0.10%), a relative tolerance is too strict — a shift of a few dozen rows could exceed ±1% relative; an absolute tolerance is used instead. All other projects retain relative tolerance as originally specified.
 - Unit tests verify:
   - Time-aware filtering: future commits must not influence the result (timestamp path)
   - Fallback path produces non-empty results when all timestamps are NULL (job_sequence path)
   - `author_feature_fallback` flag is set correctly in each path
+  - `feature_source` column is present and contains only `'timestamp'` or `'job_sequence'` values
 
 ---
 
@@ -195,7 +208,7 @@ Implement `FeatureJoiner` that iterates over all `(commit, test)` pairs in `test
 - Class located at `src/features/feature_joiner.py`
 - Method `build(repo: str, db_path: str) -> pd.DataFrame`
 - Output DataFrame has one row per `(commit_sha, test_id)` pair
-- Columns: all features from S2-01 through S2-04 plus `label` (1 = FAIL, 0 = PASS/other) and `timestamp`
+- Columns: all features from S2-01 through S2-04 plus `label` (1 = FAIL, 0 = PASS/other), `timestamp`, and `feature_source` (audit column — `'timestamp'` or `'job_sequence'`; excluded from model inputs)
 - Missing values strategy:
   - Numeric cold-start sentinels (`-1`, `999`) are preserved as-is (model handles them)
   - Null values that are not intentional sentinels raise `ValueError` during build
@@ -235,10 +248,12 @@ Add a validation step that runs after `FeatureJoiner` to catch data quality issu
 - Function `validate_features(df: pd.DataFrame) -> None` in `src/features/validation.py`
 - Raises `AssertionError` with a descriptive message if any of the following fail:
   - `df.shape[0] > 0`
-  - No column has `null` count > 5% of rows (except intentional sentinel columns)
+  - No column has `null` count > 5% of rows (except intentional sentinel columns and `timestamp`/`feature_source`)
   - `label` column contains only values in `{0, 1}`
   - `timestamp` column is monotonically non-decreasing within each `test_id` group (verifies ordering)
-  - Feature count ≥ 20
+  - `feature_source` column contains only values in `{'timestamp', 'job_sequence'}`
+  - Fraction of `feature_source='job_sequence'` rows per project matches null `commit_sha` fraction (±1%)
+  - Feature count ≥ 20 (excluding audit columns: `commit_sha`, `test_id`, `label`, `timestamp`, `feature_source`)
 - Called automatically at the end of `data_pipeline.py`
 
 ---

@@ -78,6 +78,11 @@ Timestamp population was performed after cloning the selected GitHub repositorie
 | neuland@jade4j | 314 / 314 | 35,851 | 35,851 | 2012-04-17 | 2016-07-04 | PASS |
 | thinkaurelius@titan | 382 / 382 | 39,243 | 39,243 | 2012-06-07 | 2014-07-07 | PASS |
 
+## Dataset Observations
+
+- `thinkaurelius@titan` has 0 SKIPPED rows in `test_runs`. All other 4 projects have at least some SKIPPED outcomes. This is consistent with `titan` not using JUnit `@Ignore` or `assumeTrue` skip mechanisms during the build period captured by RTPTorrent (2012–2014). It is not a loader bug — the source CSV contains no rows where `skipped > 0 AND count = skipped`. When writing the Methodology/Threats section, do not imply all projects share the same outcome distribution.
+- `adamfisk@LittleProxy` has the highest null `commit_sha` rate (30.42%) and the lowest failure rate (1.19%) among selected projects. These two attributes are independent risk factors for model quality: the null SHA rate drives fallback feature reliance, and the low failure rate drives class imbalance. Report results for this project with both caveats separately.
+
 ## Sprint 2 Handoff Notes
 
 - The Sprint 2 timestamp gate is passed for all 5 selected projects.

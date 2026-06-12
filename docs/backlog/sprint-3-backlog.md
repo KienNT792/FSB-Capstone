@@ -147,19 +147,21 @@ Implement the evaluation loop that runs a given strategy over the test set and c
 Execute the evaluation runner for all five baseline strategies on all selected RTPTorrent projects and log results to MLflow.
 
 **Acceptance Criteria:**
-- Script `scripts/run_baseline_eval.py` runs all five strategies on all selected projects (≥ 3)
-- MLflow experiment `baseline` created with ≥ 15 runs total (5 strategies × ≥ 3 projects)
+- Script `scripts/run_baseline_eval.py` runs all five strategies on all 5 selected projects
+- MLflow experiment `baseline` created with 25 runs total (5 strategies × 5 projects)
 - Each run tagged with `project` and `strategy` for filtering in UI
-- Baseline results table saved to `docs/results/baseline_apfd.md` (one column per project):
+- Baseline results table saved to `docs/results/baseline_apfd.md` (one column per project, all 5 selected):
 
 ```markdown
-| Strategy                | apache@sling APFD | <project-2> APFD | <project-3> APFD |
-|-------------------------|-------------------|------------------|------------------|
-| Random                  | X.XX              | X.XX             | X.XX             |
-| Alphabetical            | X.XX              | X.XX             | X.XX             |
-| MRF                     | X.XX              | X.XX             | X.XX             |
-| Matrix-Naive            | X.XX              | X.XX             | X.XX             |
-| Matrix-ConditionalProb  | X.XX              | X.XX             | X.XX             |
+| Strategy                | wicket-bootstrap | jade4j | deeplearning4j | LittleProxy* | titan* |
+|-------------------------|-----------------|--------|----------------|--------------|--------|
+| Random                  | X.XX            | X.XX   | X.XX           | X.XX         | X.XX   |
+| Alphabetical            | X.XX            | X.XX   | X.XX           | X.XX         | X.XX   |
+| MRF                     | X.XX            | X.XX   | X.XX           | X.XX         | X.XX   |
+| Matrix-Naive            | X.XX            | X.XX   | X.XX           | X.XX         | X.XX   |
+| Matrix-ConditionalProb  | X.XX            | X.XX   | X.XX           | X.XX         | X.XX   |
+
+\* LittleProxy and titan have failure rate < 2%; results include high-variance caveat.
 ```
 
 - **Cross-validation row added:** RTPTorrent published `recently-failed` APFD loaded from baseline CSV and compared against own MRF implementation (delta documented)
@@ -261,7 +263,7 @@ Complete unit test coverage for all evaluation framework components.
 ```
 S3-01 (APFD) ──┐
 S3-02 (split)  ──┤
-S3-03 (baselines, 5 strategies) ──┴──→ S3-04 (runner) ──→ S3-05 (baseline eval, 5 × ≥3 projects)
+S3-03 (baselines, 5 strategies) ──┴──→ S3-04 (runner) ──→ S3-05 (baseline eval, 5 strategies × 5 projects)
                                                        └──→ S3-06 (XGBoost) ──→ S3-07 (tuning) ──→ S3-08 (eval + SHAP)
 S3-09 (tests) ← depends on S3-01 through S3-06
 ```
