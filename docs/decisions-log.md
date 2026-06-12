@@ -115,6 +115,44 @@ Each entry follows the ADR-lite format below.
 
 ---
 
+## Decision 6 — S2-00 timestamp gate passed for Sprint 2 feature extraction
+
+**Date:** 2026-06-12  
+**Status:** Decided
+
+**Context:** S2-00 requires a per-project SHA-resolution decision before commit and author features are implemented. The gate is distinct-SHA coverage for rows with non-NULL `commit_sha`; rows where `commit_sha IS NULL` are structurally untimestamp-able and remain on `job_sequence` fallback.
+
+**Decision:** All five selected projects pass the S2-00 gate and are marked `TIMESTAMP_OK`.
+
+| Project | Resolved SHAs | Eligible Rows | Timestamped Rows | SHA Coverage | Row Coverage | Status |
+|---|---:|---:|---:|---:|---:|---|
+| `adamfisk@LittleProxy` | 262 / 262 | 10,974 | 10,974 | 100.00% | 69.58% | TIMESTAMP_OK |
+| `deeplearning4j@deeplearning4j` | 871 / 871 | 14,625 | 14,625 | 100.00% | 94.30% | TIMESTAMP_OK |
+| `l0rdn1kk0n@wicket-bootstrap` | 823 / 823 | 38,905 | 38,905 | 100.00% | 80.67% | TIMESTAMP_OK |
+| `neuland@jade4j` | 314 / 314 | 35,851 | 35,851 | 100.00% | 99.90% | TIMESTAMP_OK |
+| `thinkaurelius@titan` | 382 / 382 | 39,243 | 39,243 | 100.00% | 87.09% | TIMESTAMP_OK |
+
+**Rationale:** Distinct-SHA coverage is 100% for every selected project, so S2-01 and S2-02 can proceed for all projects. LittleProxy row coverage is below 70% because 30.42% of its rows have `commit_sha IS NULL`; this is a source-data gap, not a timestamp-resolution failure.
+
+**Consequences:** Feature extraction should use timestamp ordering for rows with resolved commits and `job_sequence` fallback for structurally null-SHA rows. No project-level `JOB_SEQUENCE_FALLBACK` caveat is needed for S2-00.
+
+---
+
+## Decision 7 — line-count churn is audited when blobless clones cannot provide diffs
+
+**Date:** 2026-06-12  
+**Status:** Decided
+
+**Context:** S2-01 asks for `lines_added`, `lines_deleted`, and `churn_total` from git diffs. The local selected-project clones are sufficient for commit metadata and timestamps, but most are blobless/object-filtered clones. Attempting patch or numstat diffs can trigger lazy fetches from GitHub, which is not a reliable local, reproducible source during the Sprint 2 pipeline.
+
+**Decision:** The feature pipeline disables lazy fetch for diff collection. If a diff cannot be computed from local objects, the line-count churn values are set to zero and the row is marked with `commit_diff_missing=1`. File-list churn features from RTPTorrent `patches.csv` remain populated from the `file_changes` table.
+
+**Rationale:** This preserves reproducibility and avoids fabricating line counts. RTPTorrent `patches.csv` contains changed file paths only (`sha`, `name`), not line additions/deletions, so there is no alternate committed source for numeric line churn in the current workspace.
+
+**Consequences:** Sprint 3 model training must treat `lines_added`, `lines_deleted`, and `churn_total` as low-confidence in this artifact snapshot and should consider excluding them or using `commit_diff_missing` as an audit filter. Any future attempt to recover line churn must use full local clones with blobs available and regenerate the feature parquet files.
+
+---
+
 ## Resolved Drift
 
 ### SonarSource "high failure rate" claim in sprint-1-backlog.md Risks table
