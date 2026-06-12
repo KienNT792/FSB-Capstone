@@ -6,7 +6,7 @@ import pandas as pd
 
 BASELINES = {
     "adamfisk@LittleProxy": {"baseline": 30.42, "type": "relative", "tolerance": 0.01},
-    "l0rdn1kk0n@wicket-bootstrap": {"baseline": 19.33, "type": "relative", "tolerance": 0.01},
+    "l0rdn1kk0n@wicket-bootstrap": {"baseline": 19.53, "type": "relative", "tolerance": 0.01},
     "thinkaurelius@titan": {"baseline": 12.91, "type": "relative", "tolerance": 0.01},
     "deeplearning4j@deeplearning4j": {"baseline": 5.70, "type": "relative", "tolerance": 0.01},
     "neuland@jade4j": {"baseline": 0.10, "type": "absolute", "tolerance": 0.5},

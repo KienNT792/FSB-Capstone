@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/jupyter nbconvert *)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

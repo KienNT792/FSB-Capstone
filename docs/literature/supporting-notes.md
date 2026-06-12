@@ -57,6 +57,59 @@ gradient-boosted tree models and explicit drift detection.
 
 ---
 
+---
+
+## Coverage Metrics — SHA Coverage vs Row Coverage
+
+Two distinct coverage metrics are used throughout the Sprint 1 and Sprint 2 reports. They measure different things and should not be conflated.
+
+### SHA Coverage
+
+**Definition:** The fraction of *distinct non-null commit SHAs* in the `test_runs` table that were successfully resolved to a Unix timestamp via `git log` or `git show` from the cloned repository.
+
+```
+SHA Coverage = resolved_distinct_SHAs / total_distinct_non_null_SHAs
+```
+
+This metric answers: "For every unique commit we know about, did we find its timestamp?" A value of 100% means every commit identity in the dataset has a known wall-clock time.
+
+### Row Coverage
+
+**Definition:** The fraction of *rows* in `test_runs` that have a non-NULL `timestamp` value after the timestamp enrichment pass.
+
+```
+Row Coverage = rows_with_timestamp / total_rows
+```
+
+This metric answers: "What percentage of test execution records have a resolved timestamp?" Row coverage is always ≤ SHA coverage at the project level because some rows have `commit_sha IS NULL` (a source-data gap in RTPTorrent) and can never receive a timestamp regardless of SHA resolution quality.
+
+### Why the two metrics diverge
+
+For `adamfisk@LittleProxy`, SHA coverage = 100% but row coverage = 69.58%. The gap (30.42%) is entirely explained by rows where `commit_sha IS NULL` in the source CSV — Travis CI did not record a git SHA for those builds. This is not a timestamp-resolution failure; it is a structural gap in the upstream data. Rows in this gap use `job_sequence` as their ordering proxy (tracked by `feature_source = 'job_sequence'`).
+
+### Thesis usage
+
+- Report SHA coverage to characterise data completeness from a commit-identity perspective.
+- Report row coverage to characterise how much of the training data has a reliable temporal anchor.
+- When discussing class imbalance or temporal split quality, use row coverage as the relevant denominator.
+
+---
+
+## Failure Rate — Source CSV vs Loaded DuckDB
+
+Two failure rate values appear in the project documentation for `l0rdn1kk0n@wicket-bootstrap` (and to a lesser extent other projects). They are both correct but measure different populations.
+
+| Source | Value | What it counts |
+|---|---|---|
+| RTPTorrent scan (`select_rtp_projects.py`) | 20.47% | Failure rows in the raw source CSV before deduplication |
+| Loaded DuckDB (`test_runs` table) | 22.52% | Failure rows after loading unique `(repo, job_id, test_id)` records |
+
+The loader writes one row per unique `(repo, job_id, test_id)` triple. If the source CSV has duplicate rows (e.g., a test class reported twice in one build log), the loader deduplicates them. This can shift the failure rate if duplicated rows are non-uniformly distributed across passing and failing outcomes. For wicket-bootstrap, deduplication removed more passing rows than failing rows, raising the observed failure rate from 20.47% to 22.52%.
+
+**Thesis usage:** Use the DuckDB value (22.52%) when reporting results, as this is the population the model trains and evaluates on. Use the source-CSV value (20.47%) only when describing the project selection scan or when comparing against other papers that cite the raw RTPTorrent statistics.
+
+---
+
 ## Bertolino et al. — 2020 (Empirical Study of RTP Techniques)
 
 **Candidate citation key:** `bertolino2020`

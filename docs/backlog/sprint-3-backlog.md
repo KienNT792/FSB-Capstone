@@ -278,3 +278,40 @@ S3-09 (tests) ← depends on S3-01 through S3-06
 | XGBoost APFD < MRF (no improvement) | Medium | High | Check for data leakage first; then review feature quality in EDA; add `test_file_touched` as forced feature |
 | Optuna tuning takes > 4 hours | Low | Medium | Reduce to 30 trials; use early pruning with `MedianPruner` |
 | `TimeSeriesSplit` produces empty folds | Low | Medium | Verify minimum fold size ≥ 100 rows before running tuning |
+
+---
+
+## Appendix A — Sensitivity Analysis Plan
+
+**Scope:** Results for `adamfisk@LittleProxy` (1.19% failure rate, ~117 test-set commits) and `thinkaurelius@titan` (1.46%, ~191 test-set commits) must be reported with explicit uncertainty quantification due to small failure counts. Standard point-estimate APFD is unreliable in these conditions.
+
+### Required analyses for LittleProxy and titan
+
+**1. Bootstrap confidence intervals for APFD**
+
+For each evaluated strategy on LittleProxy and titan:
+- Resample test-set commits with replacement, 1000 iterations, `random_state=42`.
+- Compute APFD per bootstrap replicate.
+- Report: mean APFD ± 95% CI (2.5th and 97.5th percentile of bootstrap distribution).
+- Implementation: `scripts/bootstrap_apfd.py`, results appended to `docs/results/baseline_apfd.md` under `*` footnote columns.
+
+**2. ≥2% threshold subset (thesis Appendix A)**
+
+Re-run the full evaluation pipeline (baselines + XGBoost) on the 3-project subset that qualifies under the original ≥2% threshold: `wicket-bootstrap`, `jade4j`, `deeplearning4j`.
+
+Purpose: Allows readers to assess whether the 1% threshold expansion meaningfully changed conclusions, as stated in Decision 2.
+
+Report format:
+```
+Table A.1 — APFD at ≥2% threshold (3 projects)
+[same columns as main Table X but wicket-bootstrap, jade4j, deeplearning4j only]
+```
+
+**3. Reporting caveats**
+
+In the main results table, LittleProxy and titan columns must be annotated with:
+> `*` Failure rate < 2%; APFD estimates have high variance. See Appendix A for bootstrap CIs.
+
+Do not claim statistical significance for APFD differences on these two projects without bootstrap CI overlap check.
+
+**Timeline:** Bootstrap analysis is part of S3-08 (XGBoost evaluation). The ≥2% subset run requires no additional data pipeline work — filter parquet by `repo` at evaluation time.

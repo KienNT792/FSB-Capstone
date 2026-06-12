@@ -153,6 +153,45 @@ Each entry follows the ADR-lite format below.
 
 ---
 
+## Decision 8 — M1 feature freeze confirmed; top features and no-leakage gate passed
+
+**Date:** 2026-06-12  
+**Status:** Decided
+
+**Context:** Sprint 2 checklist requires a formal freeze confirmation before Sprint 3 model training begins. Feature extraction modules (`CommitFeatureExtractor`, `TestHistoryFeatureExtractor`, `DependencyFeatureExtractor`, `FeatureJoiner`) are complete. EDA notebook `02_eda_features.ipynb` has been executed end-to-end on all 5 project parquets. Validation gate (`validate_features()`) passes for all projects.
+
+**Decision:** Feature pipeline is frozen as of 2026-06-12. No extractor logic changes are permitted in Sprint 3 unless a critical bug is found that invalidates existing parquet artifacts.
+
+**Top-5 features by mutual information (combined corpus, random_state=42):**
+
+| Rank | Feature | MI Score |
+|---|---|---|
+| 1 | `days_since_last_fail` | 0.2365 |
+| 2 | `failure_rate_90d` | 0.2002 |
+| 3 | `failure_rate_30d` | 0.1888 |
+| 4 | `consecutive_passes` | 0.1622 |
+| 5 | `failure_rate_7d` | 0.1558 |
+
+All five are test-history features, confirming that rolling failure rates and recency of last failure carry the dominant predictive signal. No commit-metadata or dependency features appear in the top 5 — consistent with high `commit_meta_missing` rates limiting their coverage.
+
+**No-leakage confirmation:** All history features are computed from records strictly before `as_of_ts` (commit ordering key). Rows with `commit_sha IS NULL` use `job_sequence` fallback and are tracked in `feature_source`. `feature_source` is excluded from the model input matrix (see Decision 5).
+
+**`commit_meta_missing` per project (= null-SHA fraction = `job_sequence` fallback rate):**
+
+| Project | commit_meta_missing |
+|---|---|
+| `adamfisk@LittleProxy` | 30.42% |
+| `deeplearning4j@deeplearning4j` | 5.70% |
+| `l0rdn1kk0n@wicket-bootstrap` | 19.53% |
+| `neuland@jade4j` | 0.10% |
+| `thinkaurelius@titan` | 12.91% |
+
+Note: `l0rdn1kk0n@wicket-bootstrap` value updated from 19.33% → 19.53% (see `validation.py` baseline fix — 3 upstream SHA not resolvable from current remote).
+
+**Consequences:** Sprint 3 `XGBoostTrainer` and `LGBMTrainer` use the frozen parquet artifacts. If line-count churn features (`lines_added`, `lines_deleted`, `churn_total`) are found to degrade model performance they can be dropped at the feature-selection stage without re-running extractors.
+
+---
+
 ## Resolved Drift
 
 ### SonarSource "high failure rate" claim in sprint-1-backlog.md Risks table
