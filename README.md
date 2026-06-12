@@ -91,6 +91,6 @@ The following are generated locally and ignored by git:
 
 - `data/repos/rtp-torrent/`
 - `data/features/`
-- `data/test_history.db`
+- `data/test_history.db` (DuckDB database file)
 - `mlflow-artifacts/`
 - `mlflow-db/`

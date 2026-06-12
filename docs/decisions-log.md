@@ -16,7 +16,7 @@ Each entry follows the ADR-lite format below.
 
 **Rationale:** Eliminates environment noise. Provides reproducible ground truth. Enables direct comparison with published baselines (matrix-naive, matrix-conditional-prob). Reduces setup from weeks to hours.
 
-**Consequences:** Feature extraction reads from SQLite (loaded from CSVs), not live Maven runs. Git repos are cloned read-only for metadata only. Sprint 2 `CommitFeatureExtractor` sources file lists from `file_changes` table (`patches.csv`), not from `git diff`.
+**Consequences:** Feature extraction reads from DuckDB (loaded from CSVs), not live Maven runs. Git repos are cloned read-only for metadata only. Sprint 2 `CommitFeatureExtractor` sources file lists from `file_changes` table (`patches.csv`), not from `git diff`.
 
 ---
 

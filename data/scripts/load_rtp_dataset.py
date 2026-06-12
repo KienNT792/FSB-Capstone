@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Load selected RTPTorrent CSV data into SQLite.
+Load selected RTPTorrent CSV data into DuckDB.
 
 Usage:
     python scripts/load_rtp_dataset.py --db-path data/test_history.db \
@@ -91,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Read inputs and print counts without writing to SQLite.",
+        help="Read inputs and print counts without writing to DuckDB.",
     )
     return parser.parse_args()
 
@@ -222,14 +222,11 @@ def load_commit_mapping(mapping_path: Path) -> dict[str, str]:
 
 def connect_database(db_path: Path, force: bool) -> duckdb.DuckDBPyConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = duckdb.connect(str(db_path))
     if force:
-        connection.execute(
-            """
-            DROP TABLE IF EXISTS test_runs;
-            DROP TABLE IF EXISTS file_changes;
-            """
-        )
+        for path in (db_path, Path(str(db_path) + ".wal")):
+            if path.exists():
+                path.unlink()
+    connection = duckdb.connect(str(db_path))
     create_schema(connection)
     return connection
 
@@ -237,8 +234,11 @@ def connect_database(db_path: Path, force: bool) -> duckdb.DuckDBPyConnection:
 def create_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         """
+        CREATE SEQUENCE IF NOT EXISTS test_runs_id_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS file_changes_id_seq START 1;
+
         CREATE TABLE IF NOT EXISTS test_runs (
-            id              INTEGER PRIMARY KEY,
+            id              BIGINT PRIMARY KEY DEFAULT nextval('test_runs_id_seq'),
             repo            TEXT NOT NULL,
             job_id          TEXT NOT NULL,
             commit_sha      TEXT,
@@ -253,7 +253,7 @@ def create_schema(connection: duckdb.DuckDBPyConnection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS file_changes (
-            id              INTEGER PRIMARY KEY,
+            id              BIGINT PRIMARY KEY DEFAULT nextval('file_changes_id_seq'),
             repo            TEXT NOT NULL,
             commit_sha      TEXT NOT NULL,
             file_path       TEXT NOT NULL
@@ -284,7 +284,7 @@ def insert_test_batch(
     before = connection.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
     connection.executemany(
         """
-        INSERT OR IGNORE INTO test_runs (
+        INSERT INTO test_runs (
             repo,
             job_id,
             commit_sha,
@@ -296,7 +296,8 @@ def insert_test_batch(
             job_sequence,
             run_count
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT DO NOTHING;
         """,
         rows,
     )
@@ -341,8 +342,9 @@ def insert_file_batch(
     before = connection.execute("SELECT COUNT(*) FROM file_changes").fetchone()[0]
     connection.executemany(
         """
-        INSERT OR IGNORE INTO file_changes (repo, commit_sha, file_path)
-        VALUES (?, ?, ?);
+        INSERT INTO file_changes (repo, commit_sha, file_path)
+        VALUES (?, ?, ?)
+        ON CONFLICT DO NOTHING;
         """,
         rows,
     )
@@ -420,7 +422,7 @@ def load_test_runs(
             if duration_ms is None:
                 null_duration += 1
 
-            # timestamp is NULL at load time; populated separately via --add-timestamps
+            # timestamp is NULL at load time; populated separately by scripts/add_timestamps.py
             # job_sequence is set after all rows are inserted (see populate_job_sequence)
             batch.append(
                 (
@@ -578,7 +580,7 @@ def main() -> int:
         )
     print(
         "NOTE: timestamp=NULL for all rows. "
-        "Run with --add-timestamps after S1-03 repos are cloned to populate git commit dates. "
+        "Run scripts/add_timestamps.py after S1-03 repos are cloned to populate git commit dates. "
         "job_sequence is available now as temporal ordering fallback."
     )
 

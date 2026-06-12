@@ -4,7 +4,7 @@ Last updated: 2026-06-02
 
 ## System Boundary
 
-AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test prioritization. It does not replay Maven builds to create labels. Current Sprint 1 work is foundation/data oriented: environment, RTPTorrent project selection, SQLite loading, validation notebook, and package scaffolding.
+AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test prioritization. It does not replay Maven builds to create labels. Current Sprint 1 work is foundation/data oriented: environment, RTPTorrent project selection, DuckDB loading, validation notebook, and package scaffolding.
 
 ## Components
 
@@ -12,8 +12,8 @@ AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test
 |-----------|------|----------|----------------|
 | RTPTorrent source data | CSV | `data/repos/rtp-torrent/` | Present; source data, preserve in place |
 | Project selector | Python, pandas | `data/scripts/select_rtp_projects.py` | Implemented; writes `data/rtp-project-summary.md` |
-| SQLite loader | Python, sqlite3 | `data/scripts/load_rtp_dataset.py` | Implemented; writes gitignored `data/test_history.db` |
-| Ground-truth validation | Jupyter, pandas, sqlite3 | `notebooks/01_ground_truth_validation.ipynb` | Present and has executed outputs |
+| DuckDB loader | Python, duckdb | `data/scripts/load_rtp_dataset.py` | Implemented; writes gitignored `data/test_history.db` |
+| Ground-truth validation | Jupyter, pandas, duckdb | `notebooks/01_ground_truth_validation.ipynb` | Present and has executed outputs |
 | Feature pipeline | Python | `scripts/data_pipeline.py` | Placeholder (`pass`) |
 | Feature/model/eval/serving packages | Python | `src/features/`, `src/models/`, `src/evaluation/`, `src/serving/` | Package skeletons only |
 | MLflow tracking | Docker Compose, MLflow SQLite backend | `docker-compose.yml` | Configured for local server on port `5000` |
@@ -27,15 +27,14 @@ AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test
 4. Loader creates `test_runs` and `file_changes`.
 5. `commit_sha` is mapped from RTPTorrent job-to-commit metadata where available.
 6. `timestamp` remains `NULL` in Sprint 1; `job_sequence` is the current temporal-order fallback.
-7. Future feature extraction should read from SQLite and write generated parquet artifacts under `data/features/`.
+7. Future feature extraction should read from DuckDB and write generated parquet artifacts under `data/features/`.
 
-## SQLite Shape
+## DuckDB Schema
 
 Current local `data/test_history.db` exists and is large (`~7.49 GB`, generated and gitignored). Confirmed tables:
 
 - `test_runs`
 - `file_changes`
-- `sqlite_sequence`
 
 Important `test_runs` columns from the loader:
 

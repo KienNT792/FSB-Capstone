@@ -20,7 +20,7 @@ No model-training, APFD, baseline APFD, cross-validation, or serving results exi
 
 Current selection threshold is `>= 1%`, not `>= 2%`.
 
-## SQLite Validation Snapshot
+## DuckDB Validation Snapshot
 
 `notebooks/01_ground_truth_validation.ipynb` contains executed outputs against `data/test_history.db`:
 
@@ -49,7 +49,7 @@ Interpret the old 2% notebook failure flags as stale relative to the current 1% 
 
 ## Data Quality Notes
 
-- Current local SQLite DB is generated and gitignored.
+- Current local DuckDB database is generated and gitignored.
 - The DB appears to contain all 20 RTPTorrent projects, not only the 5 selected projects, based on notebook output. Verify/fix loader `--auto` selection before using DB contents for final selected-project experiments.
 - Several non-selected repos have high null `commit_sha` rates in the notebook output; selected projects stay below 40%.
 - `timestamp` is expected to be `NULL` in Sprint 1; use `job_sequence` for ordering until timestamp enrichment is implemented.

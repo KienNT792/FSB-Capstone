@@ -105,7 +105,7 @@ Do not run project scripts with global python or global pip.
 
     Invoke-Python @(
         "-c",
-        "import sys, sqlite3; import git; print('Runtime OK:', sys.version.split()[0])"
+        "import sys, duckdb; import git; print('Runtime OK:', sys.version.split()[0])"
     )
 
     Write-Step "Input data checks"
@@ -127,7 +127,7 @@ Do not run project scripts with global python or global pip.
             --min-selected $MinSelected
     }
 
-    Invoke-Checked "Load selected projects into SQLite" {
+    Invoke-Checked "Load selected projects into DuckDB" {
         & $VenvPython data\scripts\load_rtp_dataset.py `
             --db-path $DbPath `
             --rtp-path $RtpPath `
@@ -142,10 +142,10 @@ Do not run project scripts with global python or global pip.
         }
     }
 
-    Invoke-Checked "SQLite smoke summary" {
+    Invoke-Checked "DuckDB smoke summary" {
         & $VenvPython -c @"
-import sqlite3
-con = sqlite3.connect(r'$DbPath')
+import duckdb
+con = duckdb.connect(r'$DbPath')
 rows = con.execute(
     '''
     SELECT repo,
@@ -163,6 +163,7 @@ for row in rows:
 total = con.execute('SELECT COUNT(*) FROM test_runs').fetchone()[0]
 if total < 10000:
     raise SystemExit(f'Expected at least 10000 test_runs rows, got {total}')
+con.close()
 "@
     }
 
@@ -207,7 +208,7 @@ if total < 10000:
     Write-Step "Done"
     Write-Host "Sprint 1 artifacts regenerated:"
     Write-Host "  Summary: $SummaryPath"
-    Write-Host "  SQLite:  $DbPath"
+    Write-Host "  DuckDB:   $DbPath"
     Write-Host ""
     Write-Host "Useful next commands:"
     Write-Host "  .\.venv\Scripts\python.exe scripts\add_timestamps.py --db-path $DbPath --git-root $GitRoot --auto --dry-run"

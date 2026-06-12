@@ -1,7 +1,7 @@
 # Sprint 1 Backlog — Environment & Ground Truth
 
 **Duration:** Week 1–2  
-**Sprint Goal:** Development environment fully operational; RTPTorrent dataset loaded into SQLite and validated.  
+**Sprint Goal:** Development environment fully operational; RTPTorrent dataset loaded into DuckDB and validated.  
 **Phase:** Foundation & Data  
 **Effort estimate:** ~47 hours
 
@@ -12,7 +12,7 @@
 ## Definition of Done
 
 - [ ] MLflow tracking UI accessible at `localhost:5000`
-- [ ] `test_history.db` contains ≥ 10,000 `(job, test)` records loaded from RTPTorrent CSVs, with `outcome`, `duration_ms`, `job_sequence`; `timestamp` may be NULL pending S2-00
+- [ ] DuckDB file `test_history.db` contains ≥ 10,000 `(job, test)` records loaded from RTPTorrent CSVs, with `outcome`, `duration_ms`, `job_sequence`; `timestamp` may be NULL pending S2-00
 - [ ] Exactly 5 RTPTorrent projects confirmed and documented (failure rate ≥ 1%, builds ≥ 100, has `-patches.csv`): `deeplearning4j@deeplearning4j` (6.0%), `l0rdn1kk0n@wicket-bootstrap` (20.5%), `neuland@jade4j` (3.7%), `adamfisk@LittleProxy` (1.2%), `thinkaurelius@titan` (1.5%)
 - [ ] Failure ratio documented per selected project (imbalance report). LittleProxy and titan have failure rate < 2%; all results on these two projects must include a low-failure-rate/high-variance caveat in thesis.
 - [ ] Literature notes (2–3 pages) covering ROCKET, Bertolino 2020, Elsner 2021, RTPTorrent (Mattis 2020)
@@ -207,13 +207,13 @@ Read abstracts and relevant sections of Bertolino 2020 and Elsner 2021. Extract 
 
 ---
 
-### S1-06 · RTPTorrent CSV loader — SQLite ingestion pipeline
+### S1-06 · RTPTorrent CSV loader — DuckDB ingestion pipeline
 
 **Priority:** Critical  
 **Estimate:** 6h
 
 **Description:**  
-Build a script that reads RTPTorrent CSV files and loads them into SQLite using a schema compatible with the rest of the feature extraction pipeline. This replaces the Maven replay approach entirely.
+Build a script that reads RTPTorrent CSV files and loads them into DuckDB using a schema compatible with the rest of the feature extraction pipeline. This replaces the Maven replay approach entirely.
 
 **Data mapping:**
 - `<project>.csv`: `travisJobId`, `testName`, `duration`, `failures`, `errors`, `skipped` → `test_runs` table
@@ -221,11 +221,14 @@ Build a script that reads RTPTorrent CSV files and loads them into SQLite using 
 - `<project>-patches.csv`: `sha`, `name` → `file_changes` table (used in Sprint 2 by `CommitFeatureExtractor`)
 
 **Acceptance Criteria:**
-- Script `scripts/load_rtp_dataset.py` accepts `--projects` (comma-separated list of `<user>@<project>` names) and `--rtp-path` arguments
-- SQLite schema:
+- Script `data/scripts/load_rtp_dataset.py` accepts `--projects` (comma-separated list of `<user>@<project>` names) and `--rtp-path` arguments
+- DuckDB schema:
 ```sql
+CREATE SEQUENCE IF NOT EXISTS test_runs_id_seq START 1;
+CREATE SEQUENCE IF NOT EXISTS file_changes_id_seq START 1;
+
 CREATE TABLE test_runs (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           BIGINT PRIMARY KEY DEFAULT nextval('test_runs_id_seq'),
     repo         TEXT NOT NULL,
     job_id       TEXT NOT NULL,         -- TravisCI job ID (numeric string)
     commit_sha   TEXT,                  -- joined from tr_all_built_commits.csv; NULL if unmapped
@@ -233,32 +236,33 @@ CREATE TABLE test_runs (
     test_index   INTEGER,               -- original position in TravisCI run order (run_index in CSV)
     outcome      TEXT NOT NULL,         -- PASS | FAIL | ERROR | SKIPPED
     duration_ms  REAL,                  -- duration * 1000; NULL if CSV duration field is empty
-    timestamp    INTEGER,               -- Unix epoch from git commit date; NULL until --add-timestamps run
-    job_sequence INTEGER,               -- DENSE_RANK on CAST(job_id AS INTEGER); fallback sort when timestamp IS NULL
+    timestamp    INTEGER,               -- Unix epoch from git commit date; NULL until scripts/add_timestamps.py runs
+    job_sequence INTEGER,               -- DENSE_RANK on TRY_CAST(job_id AS BIGINT); fallback sort when timestamp IS NULL
     run_count    INTEGER,               -- count column from CSV
     UNIQUE(repo, job_id, test_id)
 );
 CREATE TABLE file_changes (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          BIGINT PRIMARY KEY DEFAULT nextval('file_changes_id_seq'),
     repo        TEXT NOT NULL,
     commit_sha  TEXT NOT NULL,
     file_path   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_test_runs_commit   ON test_runs(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_test_runs_test_id  ON test_runs(test_id);
+CREATE INDEX IF NOT EXISTS idx_test_runs_job_seq  ON test_runs(repo, job_sequence);
 CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
 ```
 - Outcome derivation: `failures > 0 OR errors > 0` → `FAIL`; `skipped > 0 AND count = skipped` → `SKIPPED`; else → `PASS`
 - **`duration_ms` is explicitly nullable**: `square@okhttp` has 100% empty duration fields in the source CSV — these rows are loaded with `duration_ms = NULL`. This is expected and acceptable. Projects with > 10% null `duration_ms` are flagged in the summary output (does not block ingestion).
 - **`timestamp` two-phase population**:
   - Phase 1 (this script): `timestamp = NULL` for all rows. `job_sequence` is populated using `DENSE_RANK() OVER (ORDER BY CAST(job_id AS INTEGER))` within each repo and is the ordering fallback for Sprint 2 temporal split when `timestamp` is NULL.
-  - Phase 2 (`--add-timestamps` flag, requires S1-03 repos cloned): resolves `timestamp` by looking up `committed_date` from the cloned git repo for each `commit_sha`. Rows whose `commit_sha` is not found in the local clone remain NULL.
+  - Phase 2 (`scripts/add_timestamps.py`, requires S1-03 repos cloned): resolves `timestamp` by looking up `committed_date` from the cloned git repo for each `commit_sha`. Rows whose `commit_sha` is not found in the local clone remain NULL.
   - **`timestamp` is commit-level, not job-level**: multiple `job_id` values from the same commit (matrix builds) share the same `timestamp`. Sprint 2 temporal split MUST split on `commit_sha` groups, not individual rows, to avoid data leakage.
 - Script is idempotent: re-running skips already-loaded `(repo, job_id, test_id)` triples
 - Prints summary after load: total rows, failure rate, null-commit-sha count, null-duration count per project
 
-**`--add-timestamps` implementation notes (Phase 2):**
-- Requires repos cloned under `data/repos/` by S1-03
+**`scripts/add_timestamps.py` implementation notes (Phase 2):**
+- Requires repos cloned under `data/git-repos/` by S1-03
 - For each distinct `commit_sha` in `test_runs`, call `git.Repo(repo_path).commit(sha).committed_date`
 - Batch-update: `UPDATE test_runs SET timestamp = ? WHERE repo = ? AND commit_sha = ?`
 - Skip if SHA not found in local clone (remains NULL); log count of unresolved SHAs
@@ -267,14 +271,18 @@ CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
 **Implementation notes:**
 - Use `csv.DictReader` for all CSV parsing (not pandas — avoids memory spikes on 17M-row SonarSource CSV)
 - Join `tr_all_built_commits.csv` on `tr_job_id` to get `commit_sha`; some jobs may map to multiple SHAs (parallel matrix builds) — use the first SHA for the job
-- `job_sequence` is computed post-load via a single SQL UPDATE using a window function equivalent in SQLite:
+- `job_sequence` is computed post-load via a single SQL UPDATE using DuckDB's native window function support:
   ```sql
-  WITH ranked AS (
-      SELECT id, DENSE_RANK() OVER (PARTITION BY repo ORDER BY CAST(job_id AS INTEGER)) AS seq
-      FROM test_runs WHERE repo = ?
-  )
-  UPDATE test_runs SET job_sequence = ranked.seq
-  FROM ranked WHERE test_runs.id = ranked.id;
+  UPDATE test_runs
+  SET job_sequence = ranked.seq
+  FROM (
+      SELECT job_id,
+             DENSE_RANK() OVER (ORDER BY TRY_CAST(job_id AS BIGINT) NULLS LAST, job_id) AS seq
+      FROM test_runs
+      WHERE repo = ?
+  ) AS ranked
+  WHERE test_runs.repo = ?
+    AND test_runs.job_id = ranked.job_id;
   ```
 
 ---
@@ -285,7 +293,7 @@ CREATE INDEX IF NOT EXISTS idx_file_changes_commit ON file_changes(commit_sha);
 **Estimate:** 5h
 
 **Description:**  
-Validate the contents of `test_history.db` loaded from RTPTorrent and produce a report characterising dataset quality, class distribution, and suitability for model training.
+Validate the contents of DuckDB file `test_history.db` loaded from RTPTorrent and produce a report characterising dataset quality, class distribution, and suitability for model training.
 
 **Acceptance Criteria:**
 - Notebook `notebooks/01_ground_truth_validation.ipynb` created and fully executed

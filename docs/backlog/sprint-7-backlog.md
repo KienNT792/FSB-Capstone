@@ -64,7 +64,7 @@ Implement the Build History table showing per-commit prediction accuracy and CI 
 - Polling every 30 seconds with `setInterval`
 
 **Spring Boot endpoint required:**
-- `GET /api/builds` returns list of `BuildRecord` objects from `build_results` table (add table to SQLite schema)
+- `GET /api/builds` returns list of `BuildRecord` objects from `build_results` table (add table to DuckDB schema)
 
 ---
 
@@ -141,13 +141,13 @@ Implement the backend endpoints in Spring Boot that the dashboard consumes.
 **Acceptance Criteria:**
 - Controller `DashboardController` at `src/main/java/.../DashboardController.java`
 - Endpoints:
-  - `GET /api/builds?limit=N` → list of last N builds from SQLite `build_results` table
+  - `GET /api/builds?limit=N` → list of last N builds from DuckDB `build_results` table
   - `GET /api/metrics/apfd-trend?days=N` → daily APFD aggregated per repo for past N days
   - `GET /api/metrics/kpis` → aggregate KPIs (total hours saved, avg time reduction, builds today, flaky count)
-- SQLite schema additions:
+- DuckDB schema additions:
 ```sql
 CREATE TABLE build_results (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              INTEGER PRIMARY KEY,
     commit_sha      TEXT NOT NULL,
     repo            TEXT NOT NULL,
     timestamp       INTEGER NOT NULL,
@@ -160,7 +160,7 @@ CREATE TABLE build_results (
 );
 ```
 - All endpoints return JSON; empty state returns empty array (not 404)
-- Unit tests with H2 in-memory database for SQLite
+- Unit tests with DuckDB in-memory database
 
 ---
 

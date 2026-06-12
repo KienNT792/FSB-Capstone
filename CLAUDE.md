@@ -19,13 +19,13 @@ Sprint 1 foundation is in progress.
 - Existing: `requirements.txt`, `docker-compose.yml`, `src/`, `tests/`, `scripts/`, `notebooks/`, `data/features/`.
 - RTPTorrent CSV data exists under `data/repos/rtp-torrent/`.
 - Data helper scripts exist in `data/scripts/`.
-- `README.md` is the command reference for setup, MLflow, project selection, and SQLite loading.
+- `README.md` is the command reference for setup, MLflow, project selection, and DuckDB loading.
 - Sprint tasks live in `docs/backlog/`; sprint planning lives in `docs/plan/`.
 
 ## Entry Points
 
 - Select usable RTPTorrent projects: `data/scripts/select_rtp_projects.py`
-- Load selected projects to SQLite: `data/scripts/load_rtp_dataset.py`
+- Load selected projects to DuckDB: `data/scripts/load_rtp_dataset.py`
 - Build feature artifacts: `scripts/data_pipeline.py`
 - Package skeletons: `src/features/`, `src/models/`, `src/evaluation/`, `src/serving/`
 - Experiment notebook: `notebooks/01_ground_truth_validation.ipynb`
