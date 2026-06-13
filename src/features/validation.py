@@ -33,7 +33,7 @@ def _assert_required_columns(df: pd.DataFrame) -> None:
 
 
 def _assert_null_rates(df: pd.DataFrame) -> None:
-    exempt = {"timestamp", "feature_source", "commit_sha", "test_id"}
+    exempt = {"timestamp", "feature_source", "commit_sha", "test_id", "job_sequence"}
     for column in df.columns:
         if column in exempt:
             continue
@@ -88,7 +88,7 @@ def _assert_feature_source_ratios(df: pd.DataFrame) -> None:
 
 
 def _assert_feature_count(df: pd.DataFrame) -> None:
-    excluded = {"commit_sha", "test_id", "label", "timestamp", "feature_source"}
+    excluded = {"commit_sha", "test_id", "label", "timestamp", "feature_source", "job_sequence"}
     feature_cols = [column for column in df.columns if column not in excluded]
     assert len(feature_cols) >= 20, (
         f"Only {len(feature_cols)} feature columns (need >= 20, excluded: {excluded})"
