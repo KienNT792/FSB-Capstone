@@ -62,7 +62,13 @@ class FakeTestHistoryExtractor:
 
 
 class FakeDependencyExtractor:
-    def extract(self, test_id: str, changed_java_files: list[str], repo_path: Path) -> dict:
+    def extract(
+        self,
+        test_id: str,
+        changed_java_files: list[str],
+        repo_path: Path,
+        commit_sha: str | None = None,
+    ) -> dict:
         return {
             "test_file_touched": int(any(path.endswith("FooTest.java") for path in changed_java_files)),
             "import_overlap": len(changed_java_files),

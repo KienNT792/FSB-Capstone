@@ -153,42 +153,32 @@ Each entry follows the ADR-lite format below.
 
 ---
 
-## Decision 8 — M1 feature freeze confirmed; top features and no-leakage gate passed
+## Decision 9 — S2-08 EDA notebook executed; M1 milestone closed
 
 **Date:** 2026-06-12  
 **Status:** Decided
 
-**Context:** Sprint 2 checklist requires a formal freeze confirmation before Sprint 3 model training begins. Feature extraction modules (`CommitFeatureExtractor`, `TestHistoryFeatureExtractor`, `DependencyFeatureExtractor`, `FeatureJoiner`) are complete. EDA notebook `02_eda_features.ipynb` has been executed end-to-end on all 5 project parquets. Validation gate (`validate_features()`) passes for all projects.
+**Decision:** S2-08 (`notebooks/02_eda_features.ipynb`) executed cleanly end-to-end. Top-5 features by mutual information confirmed: `days_since_last_fail` (0.2365), `failure_rate_90d` (0.2002), `failure_rate_30d` (0.1888), `consecutive_passes` (0.1622), `failure_rate_7d` (0.1558). All top-5 are test-history features. M1 milestone declared closed.
 
-**Decision:** Feature pipeline is frozen as of 2026-06-12. No extractor logic changes are permitted in Sprint 3 unless a critical bug is found that invalidates existing parquet artifacts.
+**Rationale:** MI ranking and correlation-with-label ranking agree on the top features, providing cross-validation. No data leakage detected — all history features computed strictly before `as_of_ts`; rows without `commit_sha` use `job_sequence` fallback (tracked via `feature_source` column).
 
-**Top-5 features by mutual information (combined corpus, random_state=42):**
+**Consequences:** M1 milestone closed. Feature pipeline frozen — no changes to extractor logic from Sprint 3 onward unless a critical bug is found (see Pending entry on `commit_diff_missing` for `deeplearning4j` below).
 
-| Rank | Feature | MI Score |
-|---|---|---|
-| 1 | `days_since_last_fail` | 0.2365 |
-| 2 | `failure_rate_90d` | 0.2002 |
-| 3 | `failure_rate_30d` | 0.1888 |
-| 4 | `consecutive_passes` | 0.1622 |
-| 5 | `failure_rate_7d` | 0.1558 |
+> **Cross-reference:** `docs/architecture-snapshot.md` Sprint 2 output summary table reflects actual pipeline output. Update architecture-snapshot.md to reflect feature pipeline status change from "Placeholder" to "Implemented".
 
-All five are test-history features, confirming that rolling failure rates and recency of last failure carry the dominant predictive signal. No commit-metadata or dependency features appear in the top 5 — consistent with high `commit_meta_missing` rates limiting their coverage.
+---
 
-**No-leakage confirmation:** All history features are computed from records strictly before `as_of_ts` (commit ordering key). Rows with `commit_sha IS NULL` use `job_sequence` fallback and are tracked in `feature_source`. `feature_source` is excluded from the model input matrix (see Decision 5).
+## Pending Decisions
 
-**`commit_meta_missing` per project (= null-SHA fraction = `job_sequence` fallback rate):**
+| Date | Issue | Status | Interim Action | Resolution Trigger |
+|---|---|---|---|---|
+| 2026-06-12 | `commit_diff_missing = 100%` for `deeplearning4j@deeplearning4j` (local clone is blobless; line-count diffs require lazy-fetching blobs). Affects `lines_added`, `lines_deleted`, `churn_total` for this project only. `commit_meta_missing` for this project is only 5.7% — metadata is fine, only line-count diffs are affected. | PENDING — Option A (unblob clone, ~2–4h) vs Option B (document as limitation, no code change) | Treat churn features (`lines_added`, `lines_deleted`, `churn_total`) for `deeplearning4j` as unreliable/audit-flagged. Does not block Sprint 3 — these features rank outside top-5 by MI (≤0.054). | Revisit if Sprint 4 SHAP analysis shows churn features have significant importance for `deeplearning4j` specifically, OR if `deeplearning4j` APFD is anomalously low relative to other projects. Default to Option B if no trigger fires by end of Sprint 4. |
 
-| Project | commit_meta_missing |
-|---|---|
-| `adamfisk@LittleProxy` | 30.42% |
-| `deeplearning4j@deeplearning4j` | 5.70% |
-| `l0rdn1kk0n@wicket-bootstrap` | 19.53% |
-| `neuland@jade4j` | 0.10% |
-| `thinkaurelius@titan` | 12.91% |
+---
 
-Note: `l0rdn1kk0n@wicket-bootstrap` value updated from 19.33% → 19.53% (see `validation.py` baseline fix — 3 upstream SHA not resolvable from current remote).
+## Known Drift To Resolve
 
-**Consequences:** Sprint 3 `XGBoostTrainer` and `LGBMTrainer` use the frozen parquet artifacts. If line-count churn features (`lines_added`, `lines_deleted`, `churn_total`) are found to degrade model performance they can be dropped at the feature-selection stage without re-running extractors.
+- Sprint 2 feature pipeline (`data_pipeline.py`) is now implemented and validated — update `docs/architecture-snapshot.md` accordingly (mark feature pipeline row as "Implemented").
 
 ---
 

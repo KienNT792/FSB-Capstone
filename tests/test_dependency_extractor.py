@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 from src.features.dependency_extractor import DependencyFeatureExtractor
 
@@ -104,3 +108,45 @@ def test_module_fallback_uses_top_level_directory_without_pom(tmp_path: Path) ->
     )
 
     assert result["changed_files_in_module"] == 1
+
+
+def test_historical_commit_source_is_used_when_worktree_file_is_missing(tmp_path: Path) -> None:
+    if shutil.which("git") is None:
+        pytest.skip("git CLI is required for historical source lookup")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init")
+    run_git(repo, "config", "user.email", "dev@example.com")
+    run_git(repo, "config", "user.name", "Dev")
+    write_test_file(repo)
+    run_git(repo, "add", ".")
+    run_git(repo, "commit", "-m", "add test")
+    historical_sha = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    (repo / "src" / "test" / "java" / "com" / "example" / "FooTest.java").unlink()
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-m", "delete test")
+
+    subject = DependencyFeatureExtractor()
+    subject.add_observed_test_source_paths(["src/test/java/com/example/FooTest.java"])
+
+    result = subject.extract(
+        "com.example.FooTest",
+        ["src/test/java/com/example/FooTest.java"],
+        repo,
+        commit_sha=historical_sha,
+    )
+
+    assert result["dependency_parse_failed"] == 0
+    assert result["test_file_touched"] == 1
+
+
+def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )

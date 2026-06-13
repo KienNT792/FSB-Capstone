@@ -2,9 +2,11 @@
 
 Last updated: 2026-06-12 (Sprint 2 / M1 closeout)
 
+> Authoritative copy is `.claude/context/architecture-snapshot.md`. This file mirrors it for thesis documentation purposes.
+
 ## System Boundary
 
-AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test prioritization. It does not replay Maven builds to create labels. Sprint 1 is complete: selected RTPTorrent projects are loaded into DuckDB, local Git clones are available, and commit timestamps are populated for every non-null commit SHA.
+AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test prioritization. It does not replay Maven builds to create labels. Sprint 1 is complete: selected RTPTorrent projects are loaded into DuckDB, local Git clones are available, and commit timestamps are populated for every non-null commit SHA. Sprint 2 is complete: feature extraction pipeline is implemented, validated, and frozen for M1.
 
 ## Components
 
@@ -20,17 +22,17 @@ AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test
 | Feature packages | Python | `src/features/` | Extractors implemented: `CommitFeatureExtractor`, `TestHistoryFeatureExtractor`, `DependencyFeatureExtractor`, `FeatureJoiner`, `validate_features()` |
 | Model/eval/serving packages | Python | `src/models/`, `src/evaluation/`, `src/serving/` | Package skeletons only — pending Sprint 3+ |
 | MLflow tracking | Docker Compose, MLflow SQLite backend | `docker-compose.yml` | Configured for local server on port `5000` |
-| Tests | pytest | `tests/`, `pytest.ini` | Timestamp tests pass; pytest ignores cloned upstream repos |
+| Tests | pytest | `tests/`, `pytest.ini` | 40 passed (Sprint 2); pytest ignores cloned upstream repos |
 
 ## Data Flow
 
 1. Read RTPTorrent project CSVs from `data/repos/rtp-torrent/<owner>@<repo>/`.
 2. Run `data/scripts/select_rtp_projects.py` to summarize projects and mark selected candidates in `data/rtp-project-summary.md`.
-3. Run `data/scripts/load_rtp_dataset.py` to load selected/manual projects into `data/test_history.db`.
-4. Loader creates `test_runs` and `file_changes`.
+3. Run `data/scripts/load_rtp_dataset.py` to load selected projects into `data/test_history.db`.
+4. Loader creates `test_runs` and `file_changes` tables.
 5. `commit_sha` is mapped from RTPTorrent job-to-commit metadata where available.
 6. Run `scripts/add_timestamps.py` against `data/git-repos` to populate `timestamp` from commit metadata.
-7. `scripts/add_timestamps.py` resolves `timestamp` via batched Git CLI (`git log --all` plus batched `git show` fallback for unreachable objects in blobless clones) — NOT per-SHA GitPython lookups as originally planned. All 2,652 non-null `commit_sha` values across the 5 selected projects are now timestamped (100% SHA coverage, exceeds the 70% gate).
+7. `scripts/add_timestamps.py` resolves `timestamp` via batched Git CLI (`git log --all` plus batched `git show` fallback for unreachable objects in blobless clones) — NOT per-SHA GitPython lookups as originally planned, due to performance and blobless-clone unreachable-object issues. All 2,652 non-null `commit_sha` values across the 5 selected projects are now timestamped (100% SHA coverage, exceeds the 70% gate).
 8. Run `scripts/data_pipeline.py --project <owner>@<repo>` for each selected project; reads from DuckDB and writes `data/features/<project>_features.parquet`. Validated end-to-end by `notebooks/02_eda_features.ipynb`.
 9. Combined output: 160,454 rows × 37 columns (31 numeric feature columns) across all 5 projects; validation gate (`validate_features()`) passes for all projects.
 
@@ -105,6 +107,5 @@ Do not commit these:
 - ~~Add real modules under `src/features/`.~~ ✓ Done — Sprint 2.
 - Add real modules under `src/models/`, `src/evaluation/`, and `src/serving/` — Sprint 3+.
 - Add Sprint 3+ tests for evaluation framework (APFD, splitter, strategies, runner).
-- Rerun/update `notebooks/01_ground_truth_validation.ipynb` if notebook outputs are used as the canonical written validation.
 - Preserve temporal safety: split by commit groups (`TimeSeriesSplit` per project, by `commit_sha`) and avoid using future test history when generating features.
 - Pending: resolve `deeplearning4j` `commit_diff_missing=100%` (see decisions-log.md Pending table).

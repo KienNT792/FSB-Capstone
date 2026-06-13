@@ -51,6 +51,8 @@ class FeatureJoiner:
         history_df, changes_df = self._load_project_frames(repo, db_path)
         if history_df.empty:
             raise ValueError(f"No test_runs rows found for repo: {repo}")
+        if isinstance(self.dependency_extractor, DependencyFeatureExtractor):
+            self.dependency_extractor.add_observed_test_source_paths(changes_df["file_path"])
 
         git_repo = self._open_git_repo(repo)
         history_df = history_df.copy()
@@ -244,7 +246,14 @@ class FeatureJoiner:
     ) -> dict[str, Any]:
         key = (test_id, commit_sha)
         if key not in cache:
-            cache[key] = dict(self.dependency_extractor.extract(test_id, changed_java_files, repo_path))
+            cache[key] = dict(
+                self.dependency_extractor.extract(
+                    test_id,
+                    changed_java_files,
+                    repo_path,
+                    commit_sha=commit_sha,
+                )
+            )
         return cache[key]
 
     @staticmethod

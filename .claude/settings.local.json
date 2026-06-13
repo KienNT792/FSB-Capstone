@@ -10,7 +10,22 @@
       "PowerShell(& \"D:\\\\FSB\\\\FSB-Capstone\\\\.venv\\\\Scripts\\\\python.exe\" -m pip list 2>&1 | Select-Object -Skip 60 -First 80)",
       "PowerShell(& \"D:\\\\FSB\\\\FSB-Capstone\\\\.venv\\\\Scripts\\\\python.exe\" -m pip list 2>&1 | Select-Object -Skip 140)",
       "PowerShell(Move-Item *)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(.venv/Scripts/python.exe scripts/diag/step2_distribution.py)",
+      "Bash(.venv/Scripts/python.exe scripts/diag/step3_manual_trace.py)",
+      "Bash(.venv/Scripts/python.exe scripts/diag/step3b_targeted_trace.py)",
+      "Bash(.venv/Scripts/python.exe scripts/diag/step3c_extra_checks.py)",
+      "PowerShell(git -C $p remote -v)",
+      "PowerShell(git -C $p config --get remote.origin.promisor)",
+      "PowerShell(git -C $p config --get remote.origin.partialclonefilter)",
+      "PowerShell(git -C $p count-objects -v)",
+      "PowerShell(git -C $p rev-parse HEAD)",
+      "PowerShell($p = \"d:\\\\FSB\\\\FSB-Capstone\\\\data\\\\git-repos\\\\deeplearning4j@deeplearning4j\")",
+      "PowerShell(\"--- remote -v ---\")",
+      "PowerShell(\"--- promisor ---\")",
+      "PowerShell(\"--- partialclonefilter ---\")",
+      "PowerShell(\"--- count-objects -v ---\")",
+      "PowerShell(\"--- rev-parse HEAD ---\")"
     ]
   }
 }

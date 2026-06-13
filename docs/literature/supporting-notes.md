@@ -180,3 +180,42 @@ The original paper introducing APFD as a metric for test prioritization evaluati
 Canonical reference for the APFD formula and its interpretation.
 
 **Citation key:** `rothermel1999`
+
+---
+
+## Sprint 2 EDA Summary (2026-06-12)
+
+### Dataset Overview
+
+The combined feature corpus produced by Sprint 2 consists of **160,454 rows × 37 columns** across 5 selected RTPTorrent projects. After excluding the non-feature audit columns (`commit_sha`, `test_id`, `label`, `timestamp`, `feature_source`, `repo`), there are **31 numeric feature columns** available for model training. The overall failure rate across the combined corpus is **8.70%** (13,962 FAIL rows out of 160,454 total), with substantial variation across projects ranging from 1.19% (`adamfisk@LittleProxy`) to 22.52% (`l0rdn1kk0n@wicket-bootstrap`).
+
+### Top-5 Features by Mutual Information
+
+Computed via `sklearn.feature_selection.mutual_info_classif` on the combined corpus with `random_state=42` and missing values filled with 0.
+
+| Rank | Feature | MI Score |
+|---|---|---|
+| 1 | `days_since_last_fail` | 0.2365 |
+| 2 | `failure_rate_90d` | 0.2002 |
+| 3 | `failure_rate_30d` | 0.1888 |
+| 4 | `consecutive_passes` | 0.1622 |
+| 5 | `failure_rate_7d` | 0.1558 |
+
+### EDA Conclusions
+
+All top-5 features by mutual information are test-history features (recent and rolling per-test failure history), consistent with regression test prioritization literature. Correlation-with-label ranking (`last_outcome`, `failure_rate_90d`, `failure_rate_30d`, `failure_rate_7d`, `consecutive_passes`) corroborates this from a linear perspective. No commit-metadata or dependency-based feature appears in the top-5, consistent with elevated `commit_meta_missing` rates limiting their coverage for several projects. The scatter plot of `days_since_last_fail` vs `failure_rate_30d` confirms a clear cluster: failing tests tend to have short recency (days_since_last_fail < 30) and high 30-day failure rate, while passing tests are spread broadly.
+
+No data leakage was detected — all history features are computed from records strictly before `as_of_ts`; rows without `commit_sha` use `job_sequence` fallback (tracked via `feature_source` column, excluded from model inputs per Decision 5).
+
+### Per-Project Missing Rate Summary
+
+| Project | Shape | Failure rate | commit_meta_missing | commit_diff_missing |
+|---------|-------|--------------|----------------------|----------------------|
+| `adamfisk@LittleProxy` | (15772, 37) | 1.19% | 30.42% | 30.42% |
+| `deeplearning4j@deeplearning4j` | (15509, 37) | 6.01% | 5.70% | 100.00% |
+| `l0rdn1kk0n@wicket-bootstrap` | (48228, 37) | 22.52% | 19.53% | 19.53% |
+| `neuland@jade4j` | (35887, 37) | 3.69% | 0.10% | 0.10% |
+| `thinkaurelius@titan` | (45058, 37) | 1.46% | 12.91% | 12.91% |
+| **Combined** | **(160454, 37)** | **8.70%** | — | — |
+
+`commit_meta_missing` equals the null-`commit_sha` fraction for each project and is the rate at which the `job_sequence` fallback was used for temporal ordering. `commit_diff_missing` tracks whether line-count diff features could be computed from local git objects; `deeplearning4j` shows 100% because the local clone is blobless. See `docs/decisions-log.md` Pending table (2026-06-12) for resolution plan.
