@@ -1,6 +1,6 @@
 # Architecture Snapshot
 
-Last updated: 2026-06-12 (Sprint 2 / M1 closeout)
+Last updated: 2026-06-13 (Sprint 2 / M1 closed)
 
 ## System Boundary
 
@@ -16,7 +16,8 @@ AdaptCI uses RTPTorrent CSV data as the historical CI ground truth for Java test
 | DuckDB loader | Python, duckdb | `data/scripts/load_rtp_dataset.py` | Implemented; writes gitignored `data/test_history.db` |
 | Timestamp enricher | Python, git CLI, duckdb | `scripts/add_timestamps.py` | Implemented; 5/5 selected projects pass timestamp gate |
 | Ground-truth validation | Jupyter, pandas, duckdb | `notebooks/01_ground_truth_validation.ipynb` | Present; rerun after timestamp update before thesis use |
-| Feature pipeline | Python | `scripts/data_pipeline.py` | Implemented and validated; produces `<project>_features.parquet` for all 5 selected projects (combined shape 160,454 × 37, 31 feature columns) |
+| Feature pipeline | Python | `scripts/data_pipeline.py` | Implemented and validated; produces `<project>_features.parquet` for all 5 selected projects |
+| Feature assembler | Python | `data/scripts/assemble_full_features.py` | Concatenates per-project parquets → `data/features/full_features.parquet` (160,454 × 37); runs `validate_features()` before write |
 | Feature packages | Python | `src/features/` | Extractors implemented: `CommitFeatureExtractor`, `TestHistoryFeatureExtractor`, `DependencyFeatureExtractor`, `FeatureJoiner`, `validate_features()` |
 | Model/eval/serving packages | Python | `src/models/`, `src/evaluation/`, `src/serving/` | Package skeletons only — pending Sprint 3+ |
 | MLflow tracking | Docker Compose, MLflow SQLite backend | `docker-compose.yml` | Configured for local server on port `5000` |
@@ -93,18 +94,17 @@ Do not commit these:
 
 - `data/repos/rtp-torrent/`
 - `data/git-repos/`
-- `data/features/`
+- `data/features/` (includes `full_features.parquet` and all per-project parquets)
 - `data/test_history.db`
 - `data/test_history.db-*`
 - `mlflow-artifacts/`
 - `mlflow-db/`
 
-## Open Architecture Work
+## Open Architecture Work (Sprint 3+)
 
-- ~~Implement `scripts/data_pipeline.py`.~~ ✓ Done — Sprint 2.
-- ~~Add real modules under `src/features/`.~~ ✓ Done — Sprint 2.
-- Add real modules under `src/models/`, `src/evaluation/`, and `src/serving/` — Sprint 3+.
-- Add Sprint 3+ tests for evaluation framework (APFD, splitter, strategies, runner).
+- Add real modules under `src/models/`, `src/evaluation/`, and `src/serving/`.
+- Implement `APFDCalculator` (`src/evaluation/apfd.py`), `temporal_split` (`src/evaluation/splitter.py`), and 5 baseline strategies (`src/evaluation/strategies.py`).
+- Add tests for evaluation framework (APFD, splitter, strategies, runner).
 - Rerun/update `notebooks/01_ground_truth_validation.ipynb` if notebook outputs are used as the canonical written validation.
-- Preserve temporal safety: split by commit groups (`TimeSeriesSplit` per project, by `commit_sha`) and avoid using future test history when generating features.
-- Pending: resolve `deeplearning4j` `commit_diff_missing=100%` (see decisions-log.md Pending table).
+- Preserve temporal safety: split by commit groups (`TimeSeriesSplit` per project, by `commit_sha`); do not leak future test history into feature rows.
+- Pending: resolve `deeplearning4j` `commit_diff_missing=100%` — see decisions-log.md Pending table (default Option B if no trigger fires by end of Sprint 4).

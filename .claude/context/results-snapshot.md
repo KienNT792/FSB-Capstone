@@ -1,6 +1,6 @@
 # Experimental Results Snapshot
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## Status
 
@@ -65,7 +65,19 @@ Rows without `timestamp` correspond to rows without `commit_sha`; they are datas
 
 ## Sprint 2 Feature Pipeline Results (M1 closed 2026-06-13)
 
-Feature Parquet artifacts have been generated for all 5 projects (`data/features/<project>_features.parquet` + `full_features.parquet`). Combined: 160,454 rows × 37 cols (31 feature columns).
+Feature Parquet artifacts generated and validated for all 5 projects. `data/features/<project>_features.parquet` (5 files) + `data/features/full_features.parquet`. Combined: 160,454 rows × 37 cols (31 feature columns).
+
+### Feature Quality (2026-06-13)
+
+| Project | Shape | Label (% pos) | commit_meta_missing % | parse_fail % |
+|---|---|---|---|---|
+| `adamfisk@LittleProxy` | (15772, 37) | 1.2% | 30.4% | 1.3% |
+| `deeplearning4j@deeplearning4j` | (15509, 37) | 6.0% | 5.7% | 6.0% |
+| `l0rdn1kk0n@wicket-bootstrap` | (48228, 37) | 22.5% | 19.5% | 2.5% |
+| `neuland@jade4j` | (35887, 37) | 3.7% | 0.1% | 0.0% |
+| `thinkaurelius@titan` | (45058, 37) | 1.5% | 12.9% | 8.3% |
+
+`parse_fail %` = `dependency_parse_failed` mean. `commit_meta_missing %` = rows where git commit object was unavailable; all commit/author features zero-filled.
 
 Top-5 features by mutual information:
 
