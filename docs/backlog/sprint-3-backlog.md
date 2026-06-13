@@ -59,34 +59,24 @@ Implement the dataset splitter that partitions `full_features.parquet` into trai
 
 **Acceptance Criteria:**
 - Function `temporal_split(df: pd.DataFrame, train_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]` in `src/evaluation/splitter.py`
-- Split unit is `commit_sha`, not row or job. All rows sharing a `commit_sha` must land in the same split (matrix build jobs of the same commit are never separated).
-- **Ordering logic:**
-  1. If `timestamp` is non-NULL for a commit, use `timestamp` to rank commits.
-  2. If `timestamp` is NULL (S2-00 unresolved), use `min(job_sequence)` for that commit as ordering proxy.
-  3. If both are NULL for a commit, raise `ValueError` — this should not occur after S2-00 completes.
-- Sort commits by order key; earliest `train_ratio` fraction → train; remainder → test.
-- **No-leakage assertion (replaces timestamp comparison):**
+- **Per-project assertion (G2):** hard-assert `df["repo"].nunique() == 1` at entry; caller must filter `full_features.parquet` by `repo` before calling.
+- **Split unit: `job_sequence` (G1):** all rows sharing a `job_sequence` value belong to the same CI job and land in the same split. `job_sequence` is always non-null (DENSE_RANK on `job_id`); NULL `commit_sha` rows are distributed proportionally into train and test — never excluded.
+- **Ordering:** sort by `job_sequence` ascending (per-project, contiguous 1…N); earliest `floor(train_ratio × max_job_sequence)` sequences → train; remainder → test.
+- **No-leakage assertion (job_id-disjoint):**
   ```python
-  train_shas = set(train_df['commit_sha'])
-  test_shas  = set(test_df['commit_sha'])
-  assert train_shas.isdisjoint(test_shas), \
-      f"Leakage: {len(train_shas & test_shas)} SHAs appear in both splits"
+  train_seqs = set(train_df['job_sequence'].unique())
+  test_seqs  = set(test_df['job_sequence'].unique())
+  assert train_seqs.isdisjoint(test_seqs), \
+      f"Leakage: {len(train_seqs & test_seqs)} job_sequences appear in both splits"
   ```
-- **Temporal ordering assertion (when timestamps available):**
-  ```python
-  if train_df['timestamp'].notna().any() and test_df['timestamp'].notna().any():
-      train_max_ts = train_df.groupby('commit_sha')['timestamp'].first().max()
-      test_min_ts  = test_df.groupby('commit_sha')['timestamp'].first().min()
-      assert train_max_ts <= test_min_ts, \
-          f"Temporal leak: train max ts {train_max_ts} > test min ts {test_min_ts}"
-  ```
-  Note: `<=` not `<` — same-second commits on a boundary are acceptable; the SHA-disjoint assertion is the primary leakage guard.
-- Function logs split stats: `"Train: {n_commits} commits, {n_rows} rows. Test: {n_commits} commits, {n_rows} rows. Ordering: {'timestamp' if used else 'job_sequence'}."`
+- Function logs split stats: `"<repo> — Train: {n_jobs} jobs, {n_rows} rows ({n_nonnull_sha} non-null SHAs). Test: {n_jobs} jobs, {n_rows} rows ({n_nonnull_sha} non-null SHAs). Split at seq {threshold}/{max_seq}."`
 - Unit tests in `tests/test_splitter.py`:
-  - SHA-disjoint: verify no commit SHA appears in both splits (primary correctness test)
-  - Timestamp path: synthetic df with known timestamps → verify correct boundary
-  - Fallback path: all timestamps NULL → verify split uses `job_sequence`, still SHA-disjoint
-  - Matrix build grouping: two `job_id` rows with same `commit_sha` must land in same split
+  - job_id-disjoint: verify no `job_sequence` value appears in both splits (primary correctness test)
+  - Per-repo assertion: mixed-repo DataFrame raises `ValueError`
+  - `job_sequence` ordering correctness: train contains only earlier sequences than test
+  - NULL `commit_sha` rows retained in both splits (G1 correctness)
+  - Two rows sharing `job_sequence=N` both land in the same set
+  - Edge case: 2-job DataFrame still produces non-empty train and test
 
 ---
 
@@ -127,14 +117,14 @@ Implement the evaluation loop that runs a given strategy over the test set and c
 
 **Acceptance Criteria:**
 - Function `evaluate_strategy(strategy, test_df: pd.DataFrame, experiment_name: str) -> dict` in `src/evaluation/runner.py`
-- For each unique commit in `test_df`:
-  1. Get `test_ids` and `fault_matrix` for that commit
-  2. Call `strategy.rank(test_ids, commit_features)`
+- For each unique `job_id` in `test_df` (APFD runner groups by `job_id`, not `commit_sha` — handles NULL `commit_sha` builds as valid evaluation points):
+  1. Get `test_ids` and `fault_matrix` for that job
+  2. Call `strategy.rank(test_ids, job_features)`
   3. Compute APFD, Precision@10, Precision@20, Recall@20
-- Aggregate metrics: mean and std across all commits
+- Aggregate metrics: mean and std across all jobs
 - All metrics logged to MLflow run under `experiment_name`
 - Returns dict: `{"apfd_mean": float, "apfd_std": float, "p@10_mean": float, ...}`
-- Runs that have 0 failing tests are excluded from APFD calculation (logged as `skipped_commits` metric)
+- Jobs that have 0 failing tests are excluded from APFD calculation (logged as `skipped_jobs` metric)
 
 ---
 
@@ -175,20 +165,37 @@ Execute the evaluation runner for all five baseline strategies on all selected R
 **Estimate:** 8h
 
 **Description:**  
-Implement the `XGBoostTrainer` class with preprocessing pipeline and a `predict_proba` interface compatible with the evaluation framework.
+Implement the `XGBoostTrainer` class with a `predict_proba` interface compatible with the evaluation framework.
 
 **Acceptance Criteria:**
 - Class located at `src/models/xgboost_trainer.py`
 - Method `train(train_df: pd.DataFrame) -> xgb.XGBClassifier`
-- Preprocessing pipeline (sklearn `Pipeline`):
-  1. `SimpleImputer(strategy='median')` — handles sentinel values (-1, 999) by treating them as missing
-  2. `StandardScaler()` — applied to all numeric features
+- No preprocessing pipeline — sentinel values (`-1` for cold-start failure rates, `999.0` for `days_since_last_fail`) are passed as raw numeric features. Tree-based models split on threshold boundaries natively; median-imputing sentinels would conflate cold-start rows with non-sentinel values and degrade `days_since_last_fail` (top-1 MI feature, score 0.2365).
 - Class imbalance handled via `scale_pos_weight = neg_count / pos_count`
-- Features used: all columns except `[commit_sha, test_id, label, timestamp]`
+- Features used: all columns except `[commit_sha, test_id, label, timestamp, feature_source, repo, job_sequence]`
 - Method `predict_proba(model, test_df) -> pd.Series` returns failure probability per row
 - Method `rank(test_ids, features, model) -> list[str]` returns test IDs sorted by probability descending (highest failure probability first)
 - Integrates with `BaseStrategy` interface so it can be passed to `evaluate_strategy()`
-- Trained model and preprocessing pipeline saved together as a single `sklearn.Pipeline` artifact
+- Trained model saved as MLflow artifact `models/xgboost_v1` (no `sklearn.Pipeline` wrapper needed; model receives raw feature DataFrame directly)
+
+---
+
+### S3-06b · RandomForestTrainer implementation
+
+**Priority:** High  
+**Estimate:** 3h
+
+**Description:**  
+Implement `RandomForestTrainer` with the same interface as `XGBoostTrainer` (S3-06) to add a non-boosting comparison model for RQ1.
+
+**Acceptance Criteria:**
+- Class at `src/models/rf_trainer.py`; implements `train()`, `predict_proba()`, `rank()` — identical interface to S3-06.
+- No preprocessing pipeline (raw sentinel features, per S3-06 preprocessing decision).
+- Class imbalance: `class_weight='balanced_subsample'`.
+- Features: identical exclusion set to XGBoost/LightGBM (`[commit_sha, test_id, label, timestamp, feature_source, repo, job_sequence]`).
+- Optuna study: 15 trials only — tune `n_estimators`, `max_depth`, `min_samples_leaf`, `max_features`. (Yaraghi et al. 2022 [yaraghi2022]: tuned vs default RF APFDC delta = 0.011 — full 50-trial budget not justified.)
+- Trained model saved as MLflow artifact `models/rf_v1`; integrates with `BaseStrategy`.
+- Unit test `tests/test_rf_trainer.py`: `rank()` returns correct length, no duplicates.
 
 ---
 
@@ -251,7 +258,7 @@ Complete unit test coverage for all evaluation framework components.
 
 **Acceptance Criteria:**
 - `tests/test_apfd.py`: ≥ 6 test cases including edge cases (zero faults, all faults, single test)
-- `tests/test_splitter.py`: ≥ 6 test cases — SHA-disjoint assertion, timestamp path, job_sequence fallback path, matrix-build grouping (same SHA stays together), boundary ties (same-second commits), empty test split edge case
+- `tests/test_splitter.py`: ≥ 6 test cases — job_id-disjoint assertion, per-repo assertion (ValueError on multi-repo input), job_sequence ordering correctness, NULL commit_sha rows retained in both splits, same-job rows stay together, edge case (2-job DataFrame)
 - `tests/test_strategies.py`: ≥ 3 test cases per strategy
 - `tests/test_runner.py`: ≥ 3 test cases with mocked MLflow to avoid real logging in CI
 - `pytest tests/` exits 0
@@ -264,8 +271,8 @@ Complete unit test coverage for all evaluation framework components.
 S3-01 (APFD) ──┐
 S3-02 (split)  ──┤
 S3-03 (baselines, 5 strategies) ──┴──→ S3-04 (runner) ──→ S3-05 (baseline eval, 5 strategies × 5 projects)
-                                                       └──→ S3-06 (XGBoost) ──→ S3-07 (tuning) ──→ S3-08 (eval + SHAP)
-S3-09 (tests) ← depends on S3-01 through S3-06
+                                                       └──→ S3-06 (XGBoost) ──→ S3-06b (RandomForest) ──→ S3-07 (tuning: XGBoost + RF) ──→ S3-08 (eval + SHAP)
+S3-09 (tests) ← depends on S3-01 through S3-06b
 ```
 
 ---
