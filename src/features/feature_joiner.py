@@ -117,6 +117,7 @@ class FeatureJoiner:
                     "test_id": test_id,
                     "label": self._label(run["outcome"]),
                     "timestamp": run["timestamp"],
+                    "job_sequence": int(run["job_sequence"]),
                     **commit_features,
                     **author_features,
                     **test_features,
