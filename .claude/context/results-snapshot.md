@@ -63,10 +63,27 @@ Rows without `timestamp` correspond to rows without `commit_sha`; they are datas
 - `adamfisk@LittleProxy` and `thinkaurelius@titan` have low failure rates; report results with high-variance caveats.
 - `timestamp` is a Unix epoch integer from Git commit metadata. Use `job_sequence` only as fallback for rows with no timestamp.
 
-## Next Result Milestones
+## Sprint 2 Feature Pipeline Results (M1 closed 2026-06-13)
 
-- Implement feature generation under `scripts/data_pipeline.py` and `src/features/`.
-- Produce feature Parquet artifacts under `data/features/`.
-- Validate temporal ordering and leakage before training.
-- Compute APFD baselines: Random, Alphabetical, Most Recently Failed.
-- Train/evaluate XGBoost and LightGBM against those baselines with temporal splits.
+Feature Parquet artifacts have been generated for all 5 projects (`data/features/<project>_features.parquet` + `full_features.parquet`). Combined: 160,454 rows × 37 cols (31 feature columns).
+
+Top-5 features by mutual information:
+
+| Rank | Feature | MI Score |
+|---|---|---|
+| 1 | `days_since_last_fail` | 0.2365 |
+| 2 | `failure_rate_90d` | 0.2002 |
+| 3 | `failure_rate_30d` | 0.1888 |
+| 4 | `consecutive_passes` | 0.1622 |
+| 5 | `failure_rate_7d` | 0.1558 |
+
+All top-5 are test-history features. No data leakage detected. Feature pipeline frozen from Sprint 3 onward.
+
+## Next Result Milestones (Sprint 3)
+
+- Implement `APFDCalculator` in `src/evaluation/apfd.py`.
+- Implement `temporal_split` in `src/evaluation/splitter.py` (split by `commit_sha`).
+- Implement 5 baseline strategies in `src/evaluation/strategies.py`.
+- Run baseline eval: log 25 MLflow runs (5 strategies × 5 projects) to experiment `baseline`.
+- Train XGBoost with Optuna tuning (≥50 trials); verify APFD > MRF on ≥1 project.
+- Generate SHAP summary plot and top-10 feature importance table.

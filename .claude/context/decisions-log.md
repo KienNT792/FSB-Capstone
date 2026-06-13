@@ -2,8 +2,6 @@
 
 Last updated: 2026-06-13
 
-This file is the compact project-memory version of design decisions. The longer Sprint 1 record is in `docs/decisions-log.md`.
-
 ## Decided
 
 | Date | Decision | Rationale | Consequences |
@@ -37,7 +35,13 @@ This file is the compact project-memory version of design decisions. The longer 
 - Any result on LittleProxy or titan needs an explicit low-failure-rate/high-variance caveat.
 - Rows without `commit_sha` are real dataset gaps; use `job_sequence` fallback or filter them with a documented rationale.
 
+## Pending Decisions
+
+| Date | Issue | Status | Interim Action | Resolution Trigger |
+|---|---|---|---|---|
+| 2026-06-12 | `commit_diff_missing = 100%` for `deeplearning4j@deeplearning4j` (local clone is blobless; line-count diffs require lazy-fetching blobs). Affects `lines_added`, `lines_deleted`, `churn_total` for this project only. `commit_meta_missing` for this project is only 5.7% — metadata is fine, only line-count diffs are affected. | PENDING — Option A (unblob clone, ~2–4h) vs Option B (document as limitation, no code change) | Treat churn features (`lines_added`, `lines_deleted`, `churn_total`) for `deeplearning4j` as unreliable/audit-flagged. Does not block Sprint 3 — these features rank outside top-5 by MI (≤0.054). | Revisit if Sprint 4 SHAP analysis shows churn features have significant importance for `deeplearning4j` specifically, OR if `deeplearning4j` APFD is anomalously low relative to other projects. Default to Option B if no trigger fires by end of Sprint 4. |
+| 2026-06-12 | `test_file_touched` and `same_package` have near-zero MI (0.000124 and 0.000193). Root cause: `dependency_parse_failed=1` for 31–98% of rows forces zero-fill. Implementation is correct. | OPEN | Accept low signal; document as data limitation. Optionally ablate from models with high parse-fail rates. | Revisit if parse_fail rate is reduced by switching to a historical-commit blob approach for dependency extraction. |
+
 ## Known Drift To Resolve
 
 - Some Sprint 1 plan/backlog text still references `>= 2%` selection and exactly 3 projects. Current decision and generated summary use `>= 1%` and 5 projects.
-- Sprint 2 feature pipeline is not implemented yet: `scripts/data_pipeline.py` is still a placeholder.
