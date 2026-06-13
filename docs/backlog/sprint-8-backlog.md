@@ -227,7 +227,7 @@ Create the presentation slides for the thesis defense, structured to answer comm
 | 4 | Research questions (3 RQs) |
 | 5 | System architecture overview (1 diagram) |
 | 6 | Feature engineering summary (table, top-5 features) |
-| 7 | Model selection: XGBoost vs LightGBM (comparison table) |
+| 7 | Model selection: XGBoost vs LightGBM vs Random Forest (comparison table) |
 | 8 | RQ1 results: APFD bar chart |
 | 9 | RQ2 results: early exit tradeoff curve |
 | 10 | RQ3 results: drift detection PSI chart |

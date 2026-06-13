@@ -10,7 +10,7 @@
 ## Definition of Done
 
 - [ ] MLflow Model Registry contains model `test-predictor` version `1.0` with status `Production`
-- [ ] Full comparison table: 7 strategies × 4 metrics × ≥ 3 projects documented in `docs/results/` (5 baselines + XGBoost + LightGBM)
+- [ ] Full comparison table: 8 strategies × 4 metrics × ≥ 3 projects documented in `docs/results/` (5 baselines + XGBoost + LightGBM + Random Forest)
 - [ ] Early exit operating point identified: CI time reduction ≥ 25% at FNR ≤ 5%
 - [ ] `flaky_detector.py` with unit tests passing
 - [ ] Model Card document created at `docs/model-card.md`
@@ -32,10 +32,10 @@ Implement `LightGBMTrainer` following the same interface as `XGBoostTrainer` to 
 **Acceptance Criteria:**
 - Class located at `src/models/lgbm_trainer.py`
 - Implements the same interface as `XGBoostTrainer`: `train()`, `predict_proba()`, `rank()`
-- Preprocessing pipeline identical to XGBoost (median imputer + standard scaler)
+- No preprocessing pipeline — raw sentinel features passed directly (same rationale as S3-06: median-imputing `-1`/`999` sentinels degrades `days_since_last_fail`, top-1 MI feature).
 - Class imbalance handled via `is_unbalance=True` (LightGBM native parameter)
-- Features used: identical set to XGBoost for fair comparison
-- Trained model saved as sklearn `Pipeline` (same pattern as XGBoost)
+- Features used: identical exclusion set to XGBoost (`[commit_sha, test_id, label, timestamp, feature_source, repo, job_sequence]`)
+- Trained model saved as MLflow artifact `models/lgbm_v1` (no sklearn Pipeline wrapper; raw sentinel features passed directly)
 - Unit test in `tests/test_lgbm_trainer.py`: verify `rank()` returns a list of the correct length with no duplicates
 
 ---
@@ -98,7 +98,7 @@ Evaluate both best models using 5-fold time-series cross-validation to assess pr
 Produce the definitive comparison table across all strategies and select the official model for registration.
 
 **Acceptance Criteria:**
-- Script `scripts/compare_models.py` evaluates all 7 strategies on the held-out test set of all 5 selected projects
+- Script `scripts/compare_models.py` evaluates all 8 strategies on the held-out test set of all 5 selected projects
 - Output comparison table:
 
 | Strategy | APFD | P@10 | P@20 | R@20 | Train time | Inference time (ms/commit) |
@@ -110,6 +110,7 @@ Produce the definitive comparison table across all strategies and select the off
 | Matrix-ConditionalProb | | | | | — | — |
 | XGBoost | | | | | | |
 | LightGBM | | | | | | |
+| Random Forest | | | | | | |
 
 - **Upper bound row (reference only, not a strategy):** `Optimal-Failure` APFD loaded from RTPTorrent `optimal-failure.csv` and added to table as theoretical ceiling
 
